@@ -3,8 +3,9 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Generated,
   Index,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
 } from 'typeorm';
 import { BatchStatus } from '../enums.js';
 
@@ -16,7 +17,8 @@ import { BatchStatus } from '../enums.js';
 @Index('IX_batch_processes_status', ['status'])
 @Index('IX_batch_processes_created_at', ['createdAt'])
 export class BatchProcess {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Generated('uuid')
   id: string;
 
   @Column({ name: 'original_file_name', type: 'nvarchar', length: 260 })

@@ -3,10 +3,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Generated,
   Index,
   JoinColumn,
   ManyToOne,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
 } from 'typeorm';
 import { BatchItemStatus } from '../enums.js';
 import { BatchProcess } from './batch-process.entity.js';
@@ -23,7 +24,8 @@ import { Transfer } from './transfer.entity.js';
 })
 @Index('IX_batch_transfer_items_process_status', ['batchProcessId', 'status'])
 export class BatchTransferItem {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Generated('uuid')
   id: string;
 
   @ManyToOne(() => BatchProcess, { nullable: false, onDelete: 'NO ACTION' })

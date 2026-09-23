@@ -6,7 +6,8 @@ export class CreateInitialSchema1695312000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       CREATE TABLE accounts (
-        id uniqueidentifier NOT NULL CONSTRAINT PK_accounts PRIMARY KEY,
+        id uniqueidentifier NOT NULL CONSTRAINT DF_accounts_id DEFAULT NEWID(),
+        CONSTRAINT PK_accounts PRIMARY KEY (id),
         account_number varchar(20) NOT NULL,
         holder_name nvarchar(200) NOT NULL,
         currency char(3) NOT NULL CONSTRAINT DF_accounts_currency DEFAULT 'DOP',
@@ -23,7 +24,8 @@ export class CreateInitialSchema1695312000000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE transfers (
-        id uniqueidentifier NOT NULL CONSTRAINT PK_transfers PRIMARY KEY,
+        id uniqueidentifier NOT NULL CONSTRAINT DF_transfers_id DEFAULT NEWID(),
+        CONSTRAINT PK_transfers PRIMARY KEY (id),
         reference varchar(64) NOT NULL,
         source_account_id uniqueidentifier NOT NULL,
         destination_account_id uniqueidentifier NOT NULL,
@@ -56,7 +58,8 @@ export class CreateInitialSchema1695312000000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE account_movements (
-        id uniqueidentifier NOT NULL CONSTRAINT PK_account_movements PRIMARY KEY,
+        id uniqueidentifier NOT NULL CONSTRAINT DF_account_movements_id DEFAULT NEWID(),
+        CONSTRAINT PK_account_movements PRIMARY KEY (id),
         account_id uniqueidentifier NOT NULL,
         transfer_id uniqueidentifier NOT NULL,
         type varchar(10) NOT NULL,
@@ -84,7 +87,8 @@ export class CreateInitialSchema1695312000000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE batch_processes (
-        id uniqueidentifier NOT NULL CONSTRAINT PK_batch_processes PRIMARY KEY,
+        id uniqueidentifier NOT NULL CONSTRAINT DF_batch_processes_id DEFAULT NEWID(),
+        CONSTRAINT PK_batch_processes PRIMARY KEY (id),
         original_file_name nvarchar(260) NOT NULL,
         status varchar(32) NOT NULL CONSTRAINT DF_batch_processes_status DEFAULT 'PENDING',
         total_items int NOT NULL,
@@ -114,7 +118,8 @@ export class CreateInitialSchema1695312000000 implements MigrationInterface {
 
     await queryRunner.query(`
       CREATE TABLE batch_transfer_items (
-        id uniqueidentifier NOT NULL CONSTRAINT PK_batch_transfer_items PRIMARY KEY,
+        id uniqueidentifier NOT NULL CONSTRAINT DF_batch_transfer_items_id DEFAULT NEWID(),
+        CONSTRAINT PK_batch_transfer_items PRIMARY KEY (id),
         batch_process_id uniqueidentifier NOT NULL,
         row_number int NOT NULL,
         source_account_number varchar(20) NOT NULL,

@@ -3,18 +3,23 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Generated,
   Index,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
   UpdateDateColumn,
+
 } from 'typeorm';
 import { AccountStatus } from '../enums.js';
+
 
 @Entity('accounts')
 @Check('CK_accounts_balance_non_negative', '"balance" >= 0')
 @Check('CK_accounts_currency', '"currency" = \'DOP\'')
 @Index('UQ_accounts_account_number', ['accountNumber'], { unique: true })
 export class Account {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Generated('uuid')
+
   id: string;
 
   @Column({ name: 'account_number', type: 'varchar', length: 20 })

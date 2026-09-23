@@ -3,10 +3,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Generated,
   Index,
   JoinColumn,
   ManyToOne,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
 } from 'typeorm';
 import { MovementType } from '../enums.js';
 import { Account } from './account.entity.js';
@@ -21,7 +22,8 @@ import { Transfer } from './transfer.entity.js';
   'createdAt',
 ])
 export class AccountMovement {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Generated('uuid')
   id: string;
 
   @ManyToOne(() => Account, { nullable: false, onDelete: 'NO ACTION' })

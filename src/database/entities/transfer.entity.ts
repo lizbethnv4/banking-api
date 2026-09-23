@@ -3,10 +3,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Generated,
   Index,
   JoinColumn,
   ManyToOne,
-  PrimaryGeneratedColumn,
+  PrimaryColumn,
 } from 'typeorm';
 import { TransferStatus } from '../enums.js';
 import { Account } from './account.entity.js';
@@ -23,7 +24,8 @@ import { Account } from './account.entity.js';
 @Index('IX_transfers_source_created', ['sourceAccountId', 'createdAt'])
 @Index('IX_transfers_destination_created', ['destinationAccountId', 'createdAt'])
 export class Transfer {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'uniqueidentifier' })
+  @Generated('uuid')
   id: string;
 
   @Column({ type: 'varchar', length: 64 })

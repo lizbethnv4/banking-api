@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { buildTypeOrmOptions } from './config/database.config.js';
 import { validateEnv } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
+import { AccountsModule } from './accounts/accounts.module.js';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { HealthModule } from './health/health.module.js';
       useFactory: (config: ConfigService) => buildTypeOrmOptions(config),
     }),
     HealthModule,
+    AccountsModule,
   ],
 })
 export class AppModule {}
