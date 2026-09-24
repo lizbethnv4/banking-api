@@ -26,7 +26,8 @@
     "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
-    "test:concurrency": "tsx scripts/test-concurrency.ts"
+    "test:concurrency": "tsx scripts/test-concurrency.ts",
+    "seed:volume": "tsx scripts/seed-volume.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

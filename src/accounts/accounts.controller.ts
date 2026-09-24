@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiCreatedResponse,
@@ -17,6 +18,10 @@ import { AccountsService } from './accounts.service.js';
 import { AccountBalanceResponseDto } from './dto/account-balance-response.dto.js';
 import { AccountResponseDto } from './dto/account-response.dto.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
+import { GetAccountMovementsQueryDto } from './dto/get-account-movements-query.dto.js';
+import { AccountMovementsResponseDto } from './dto/account-movements-response.dto.js';
+import { AccountStatementResponseDto } from './dto/account-statement-response.dto.js';
+import { GetAccountStatementQueryDto } from './dto/get-account-statement-query.dto.js';
 
 @ApiTags('accounts')
 @Controller('accounts')
@@ -47,5 +52,25 @@ export class AccountsController {
     @Param('idOrNumber') idOrNumber: string,
   ): Promise<AccountResponseDto> {
     return this.accountsService.findByIdOrNumber(idOrNumber);
+  }
+
+  @Get(':idOrNumber/movements')
+  @ApiOperation({ summary: 'Consultar movimientos por id o número de cuenta' })
+  @ApiOkResponse({ type: AccountMovementsResponseDto })
+  getMovements(
+    @Param('idOrNumber') idOrNumber: string,
+    @Query() filters: GetAccountMovementsQueryDto,
+  ): Promise<AccountMovementsResponseDto> {
+    return this.accountsService.getMovements(idOrNumber, filters);
+  }
+
+  @Get(':idOrNumber/statement')
+  @ApiOperation({ summary: 'Consultar estado de cuenta por id o número de cuenta' })
+  @ApiOkResponse({ type: AccountStatementResponseDto })
+  getStatement(
+    @Param('idOrNumber') idOrNumber: string,
+    @Query() filters: GetAccountStatementQueryDto,
+  ): Promise<AccountStatementResponseDto> {
+    return this.accountsService.getStatement(idOrNumber, filters);
   }
 }

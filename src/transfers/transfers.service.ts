@@ -78,35 +78,35 @@ export class TransfersService {
     private async executeWithDeadlockRetry(
         createTransferDto: CreateTransferDto,
         amount: Decimal,
-    ) {
+      ) {
         const delays = [50, 100, 200];
-
+      
         for (let attempt = 0; attempt <= delays.length; attempt++) {
-            try {
-                return await this.executeTransfer(createTransferDto, amount);
-            } catch (error: unknown) {
-                if (!this.isDeadlockError(error)) {
-                    throw error;
-                }
-
-                if (attempt === delays.length) {
-                    throw new DomainException(
-                        'DEADLOCK_RETRY_EXHAUSTED',
-                        'No se pudo completar la transferencia debido a concurrencia.',
-                        HttpStatus.CONFLICT,
-                    );
-                }
-
-                await this.sleep(delays[attempt]);
+          try {
+            return await this.executeTransfer(createTransferDto, amount);
+          } catch (error: unknown) {
+            if (!this.isDeadlockError(error)) {
+              throw error;
             }
+      
+            if (attempt === delays.length) {
+              throw new DomainException(
+                'DEADLOCK_RETRY_EXHAUSTED',
+                'No se pudo completar la transferencia debido a concurrencia.',
+                HttpStatus.CONFLICT,
+              );
+            }
+      
+            await this.sleep(delays[attempt]);
+          }
         }
-
+      
         throw new DomainException(
-            'DEADLOCK_RETRY_EXHAUSTED',
-            'No se pudo completar la transferencia debido a concurrencia.',
-            HttpStatus.CONFLICT,
+          'DEADLOCK_RETRY_EXHAUSTED',
+          'No se pudo completar la transferencia debido a concurrencia.',
+          HttpStatus.CONFLICT,
         );
-    }
+      }
 
     private async executeTransfer(
         createTransferDto: CreateTransferDto,
@@ -116,7 +116,7 @@ export class TransfersService {
 
         await queryRunner.connect();
         await queryRunner.startTransaction();
-
+        
         try {
             
             const accounts: Account[] = await queryRunner.query(
