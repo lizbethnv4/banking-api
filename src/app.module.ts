@@ -5,6 +5,7 @@ import { buildTypeOrmOptions } from './config/database.config.js';
 import { validateEnv } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
 import { AccountsModule } from './accounts/accounts.module.js';
+import { TransfersModule } from './transfers/transfers.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AccountsModule } from './accounts/accounts.module.js';
     }),
     HealthModule,
     AccountsModule,
+    TransfersModule,
   ],
 })
 export class AppModule {}
