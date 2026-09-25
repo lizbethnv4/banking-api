@@ -6,6 +6,7 @@ import { validateEnv } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
 import { AccountsModule } from './accounts/accounts.module.js';
 import { TransfersModule } from './transfers/transfers.module.js';
+import { BatchTransfersModule } from './batch-transfers/batch-transfers.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { TransfersModule } from './transfers/transfers.module.js';
     HealthModule,
     AccountsModule,
     TransfersModule,
+    BatchTransfersModule,
   ],
 })
 export class AppModule {}

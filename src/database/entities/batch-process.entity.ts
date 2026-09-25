@@ -48,7 +48,7 @@ export class BatchProcess {
   })
   progressPercentage: string;
 
-  @CreateDateColumn({ name: 'created_at', type: 'datetime2' })
+  @Column({ name: 'created_at', type: 'datetime2' })
   createdAt: Date;
 
   @Column({ name: 'started_at', type: 'datetime2', nullable: true })

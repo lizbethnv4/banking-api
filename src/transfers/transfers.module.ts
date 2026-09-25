@@ -7,6 +7,7 @@ import { Transfer } from '../database/entities/transfer.entity.js';
 @Module({
   imports: [TypeOrmModule.forFeature([Transfer])],
   controllers: [TransfersController],
-  providers: [TransfersService]
+  providers: [TransfersService],
+  exports: [TransfersService],
 })
 export class TransfersModule {}

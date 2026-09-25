@@ -71,6 +71,7 @@ Las migraciones se ejecutan con **tsx** y el CLI de TypeORM contra `src/database
 | `npm run migration:run` | Aplica migraciones pendientes |
 | `npm run migration:revert` | Revierte la última migración |
 | `npm run migration:generate -- src/database/migrations/NombreCambio` | Genera migración desde diff de entidades (requiere nombre de archivo) |
+  `npm run typeorm -- migration:create src/database/migrations/NombreCambio` | Genera archivo para migración vacío
 
 Ejemplo tras levantar Docker y crear la BD:
 
