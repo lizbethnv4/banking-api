@@ -21,6 +21,7 @@ import { AccountMovementsResponseDto } from './dto/account-movements-response.dt
 import { toAccountMovementsResponse, toAccountStatementResponse } from './account-movements.mapper.js';
 import { GetAccountStatementQueryDto } from './dto/get-account-statement-query.dto.js';
 import { AccountStatementResponseDto } from './dto/account-statement-response.dto.js';
+import { In } from 'typeorm';
 
 const MAX_ACCOUNT_NUMBER_ATTEMPTS = 5;
 
@@ -232,5 +233,19 @@ export class AccountsService {
       totals?.totalCredits ?? '0',
       totals?.totalDebits ?? '0',
     );
+  }
+
+  async findAccountsByNumbers(
+    accountNumbers: string[],
+  ): Promise<Account[]> {
+    if (accountNumbers.length === 0) {
+      return [];
+    }
+
+    return this.accountRepository.find({
+      where: {
+        accountNumber: In(accountNumbers),
+      },
+    });
   }
 }

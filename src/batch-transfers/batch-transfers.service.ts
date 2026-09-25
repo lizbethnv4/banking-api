@@ -14,6 +14,7 @@ import { AccountsService } from '../accounts/accounts.service.js';
 import { BatchProcessResponseDto } from './dto/batch-process-response.dto.js';
 import { GetBatchItemsQueryDto } from './dto/get-batch-items-query.dto.js';
 import { BatchItemsResponseDto } from './dto/batch-items-response.dto.js';
+import { Account } from '../database/entities/account.entity.js';
 
 type CsvTransferRow = {
     sourceAccountNumber?: string;
@@ -37,6 +38,14 @@ export class BatchTransfersService {
     private readonly PROCESSING_BATCH_SIZE = 500;
     private readonly MAX_ITEM_ATTEMPTS = 3;
     private readonly CONCURRENCY_LIMIT = 5;
+
+    private perf = {
+        items: 0,
+        processingSaveMs: 0,
+        accountLookupMs: 0,
+        transferMs: 0,
+        resultSaveMs: 0,
+    };
 
     async createBatch(
         file: Express.Multer.File,
@@ -206,6 +215,17 @@ export class BatchTransfersService {
             return;
         }
 
+        // Reiniciar métricas para este batch
+        this.perf = {
+            items: 0,
+            processingSaveMs: 0,
+            accountLookupMs: 0,
+            transferMs: 0,
+            resultSaveMs: 0,
+        };
+
+        const batchPerformanceStart = performance.now();
+
         batch.status = BatchStatus.PROCESSING;
         batch.startedAt = new Date();
 
@@ -228,19 +248,99 @@ export class BatchTransfersService {
                     break;
                 }
 
-                for (let i = 0; i < items.length; i += this.CONCURRENCY_LIMIT) {
+                const accountsMap =
+                    await this.loadAccountsMap(items);
+
+                for (
+                    let i = 0;
+                    i < items.length;
+                    i += this.CONCURRENCY_LIMIT
+                ) {
                     const group = items.slice(
                         i,
                         i + this.CONCURRENCY_LIMIT,
                     );
 
+                    const groupIds = group.map((item) => item.id);
+
+                    const processingStart = performance.now();
+
+                    await this.batchItemRepository
+                        .createQueryBuilder()
+                        .update(BatchTransferItem)
+                        .set({
+                            status: BatchItemStatus.PROCESSING,
+                            attemptCount: () => '"attempt_count" + 1',
+                        })
+                        .whereInIds(groupIds)
+                        .execute();
+
+                    const processingMs =
+                        performance.now() - processingStart;
+
+                    // Lo repartimos entre los items únicamente
+                    // para mantener útil nuestro profiler.
+                    this.perf.processingSaveMs += processingMs;
+
+                    // Sincronizamos los objetos en memoria.
+                    for (const item of group) {
+                        item.status = BatchItemStatus.PROCESSING;
+                        item.attemptCount += 1;
+                    }
+
                     await Promise.all(
-                        group.map((item) => this.processItem(item)),
+                        group.map((item) =>
+                            this.processItem(item, accountsMap),
+                        ),
                     );
                 }
 
                 await this.updateProgress(batchId);
             }
+
+            const totalBatchMs =
+                performance.now() - batchPerformanceStart;
+
+            console.log('===== BATCH PERFORMANCE =====');
+            console.log({
+                items: this.perf.items,
+
+                totalBatchSeconds:
+                    (totalBatchMs / 1000).toFixed(2),
+
+                avgProcessingSaveMs:
+                    this.perf.items > 0
+                        ? (
+                            this.perf.processingSaveMs /
+                            this.perf.items
+                        ).toFixed(2)
+                        : '0',
+
+                avgAccountLookupMs:
+                    this.perf.items > 0
+                        ? (
+                            this.perf.accountLookupMs /
+                            this.perf.items
+                        ).toFixed(2)
+                        : '0',
+
+                avgTransferMs:
+                    this.perf.items > 0
+                        ? (
+                            this.perf.transferMs /
+                            this.perf.items
+                        ).toFixed(2)
+                        : '0',
+
+                avgResultSaveMs:
+                    this.perf.items > 0
+                        ? (
+                            this.perf.resultSaveMs /
+                            this.perf.items
+                        ).toFixed(2)
+                        : '0',
+            });
+            console.log('=============================');
 
             await this.finishBatch(batchId);
         } catch (error) {
@@ -250,22 +350,45 @@ export class BatchTransfersService {
 
     private async processItem(
         item: BatchTransferItem,
+        accountsMap: Map<string, Account>,
     ): Promise<void> {
-        item.status = BatchItemStatus.PROCESSING;
-        item.attemptCount += 1;
-
-        await this.batchItemRepository.save(item);
+        // Contamos el intento desde el principio.
+        this.perf.items++;
 
         try {
-            const source =
-                await this.accountsService.findAccountEntity(
-                    item.sourceAccountNumber,
-                );
+            // ==========================================
+            // Medir búsqueda de cuentas
+            // ==========================================
 
-            const destination =
-                await this.accountsService.findAccountEntity(
-                    item.destinationAccountNumber,
+            const accountLookupStart = performance.now();
+
+            const source = accountsMap.get(item.sourceAccountNumber);
+            const destination = accountsMap.get(item.destinationAccountNumber);
+
+            this.perf.accountLookupMs +=
+                performance.now() - accountLookupStart;
+
+            if (!source) {
+                throw new DomainException(
+                    'ACCOUNT_NOT_FOUND',
+                    'Cuenta de origen no encontrada',
+                    HttpStatus.NOT_FOUND,
                 );
+            }
+
+            if (!destination) {
+                throw new DomainException(
+                    'ACCOUNT_NOT_FOUND',
+                    'Cuenta de destino no encontrada',
+                    HttpStatus.NOT_FOUND,
+                );
+            }
+
+            // ==========================================
+            // Medir transferencia
+            // ==========================================
+
+            const transferStart = performance.now();
 
             const transfer = await this.transfersService.create({
                 sourceAccountId: source.id,
@@ -274,13 +397,26 @@ export class BatchTransfersService {
                 idempotencyKey: item.idempotencyKey,
             });
 
+            this.perf.transferMs +=
+                performance.now() - transferStart;
+
+            // ==========================================
+            // Guardar resultado
+            // ==========================================
+
             item.status = BatchItemStatus.SUCCEEDED;
             item.transferId = transfer.id;
             item.errorCode = null;
             item.errorMessage = null;
             item.processedAt = new Date();
 
+            const resultSaveStart = performance.now();
+
             await this.batchItemRepository.save(item);
+
+            this.perf.resultSaveMs +=
+                performance.now() - resultSaveStart;
+
         } catch (error) {
             if (error instanceof DomainException) {
                 item.status = BatchItemStatus.FAILED;
@@ -288,7 +424,13 @@ export class BatchTransfersService {
                 item.errorMessage = error.message;
                 item.processedAt = new Date();
 
+                const resultSaveStart = performance.now();
+
                 await this.batchItemRepository.save(item);
+
+                this.perf.resultSaveMs +=
+                    performance.now() - resultSaveStart;
+
                 return;
             }
 
@@ -320,7 +462,12 @@ export class BatchTransfersService {
 
             item.processedAt = new Date();
 
+            const resultSaveStart = performance.now();
+
             await this.batchItemRepository.save(item);
+
+            this.perf.resultSaveMs +=
+                performance.now() - resultSaveStart;
         }
     }
 
@@ -472,6 +619,31 @@ export class BatchTransfersService {
             page,
             pageSize,
             total,
+        );
+    }
+
+    private async loadAccountsMap(
+        items: BatchTransferItem[],
+    ): Promise<Map<string, Account>> {
+        const accountNumbers = [
+            ...new Set(
+                items.flatMap((item) => [
+                    item.sourceAccountNumber,
+                    item.destinationAccountNumber,
+                ]),
+            ),
+        ];
+
+        const accounts =
+            await this.accountsService.findAccountsByNumbers(
+                accountNumbers,
+            );
+
+        return new Map(
+            accounts.map((account) => [
+                account.accountNumber,
+                account,
+            ]),
         );
     }
 }

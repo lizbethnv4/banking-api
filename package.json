@@ -28,7 +28,8 @@
     "seed:demo": "tsx scripts/seed-demo.ts",
     "test:concurrency": "tsx scripts/test-concurrency.ts",
     "seed:volume": "tsx scripts/seed-volume.ts",
-    "generate:batch": "tsx scripts/generate-batch-csv.ts"
+    "generate:batch": "tsx scripts/generate-batch-csv.ts",
+    "generate:performance": "tsx scripts/generate-performance-csv.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",

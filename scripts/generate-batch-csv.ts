@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 
-const SOURCE_ACCOUNT = '8953378503';
-const DESTINATION_ACCOUNT = '3529016491';
+const SOURCE_ACCOUNT = 'LOAD000005';
+const DESTINATION_ACCOUNT = 'LOAD000001';
 const TOTAL_ROWS = 10_000;
 
 const rows = [
