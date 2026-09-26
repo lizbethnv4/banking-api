@@ -27,6 +27,7 @@
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "test:concurrency": "tsx scripts/test-concurrency.ts",
+    "test:concurrency:example": "tsx scripts/test-concurrency-example.ts",
     "seed:volume": "tsx scripts/seed-volume.ts",
     "generate:batch": "tsx scripts/generate-batch-csv.ts",
     "generate:performance": "tsx scripts/generate-performance-csv.ts",

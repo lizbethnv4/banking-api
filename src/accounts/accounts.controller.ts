@@ -55,7 +55,7 @@ export class AccountsController {
   @Get('options')
   @Roles(RoleName.ADMIN, RoleName.USER)
   @ApiOperation({
-    summary: 'Returns active accounts for account selectors.',
+    summary: 'Retorna las cuentas activas ordenadas por número de cuenta',
   })
   @ApiOkResponse({ type: AccountOptionResponseDto, isArray: true })
   findOptions(): Promise<AccountOptionResponseDto[]> {

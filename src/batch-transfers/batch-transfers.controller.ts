@@ -44,7 +44,7 @@ export class BatchTransfersController {
     @Roles(RoleName.ADMIN)
     @UseInterceptors(FileInterceptor('file'))
     @ApiOperation({
-        summary: 'Create batch transfer process from CSV',
+        summary: 'Crea un proceso de transferencia por lotes desde un archivo CSV',
     })
     @ApiConsumes('multipart/form-data')
     @ApiBody({
@@ -75,7 +75,7 @@ export class BatchTransfersController {
     @Get('options')
     @Roles(RoleName.ADMIN, RoleName.USER)
     @ApiOperation({
-        summary: 'Returns batch processes for batch selectors.',
+        summary: 'Retorna los procesos de transferencia por lotes para los selectores.',
     })
     @ApiOkResponse({ type: BatchProcessOptionResponseDto, isArray: true })
     findOptions(): Promise<BatchProcessOptionResponseDto[]> {
@@ -83,7 +83,7 @@ export class BatchTransfersController {
     }
 
     @Get(':id')
-    @ApiOperation({ summary: 'Get batch transfer process by id' })
+    @ApiOperation({ summary: 'Obtiene un proceso de transferencia por lotes por su id' })
     @ApiOkResponse({ type: BatchProcessResponseDto })
     async findById(
         @Param('id') id: string,
@@ -92,7 +92,7 @@ export class BatchTransfersController {
     }
 
     @Get(':id/items')
-    @ApiOperation({ summary: 'Get batch transfer items by id' })
+    @ApiOperation({ summary: 'Obtiene los items de un proceso de transferencia por lotes por su id' })
     @ApiOkResponse({ type: BatchItemsResponseDto })
     async getItems(
         @Param('id') id: string,
