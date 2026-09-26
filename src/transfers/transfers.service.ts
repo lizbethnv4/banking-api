@@ -14,6 +14,8 @@ import {
     TransferStatus,
 } from '../database/enums.js';
 import { CreateTransferDto } from './dto/create-transfer.dto.js';
+import { TransferResponseDto } from './dto/transfer-response.dto.js';
+import { toTransferResponse } from './transfers.mapper.js';
 
 @Injectable()
 export class TransfersService {
@@ -24,7 +26,9 @@ export class TransfersService {
         private readonly transferRepository: Repository<Transfer>,
     ) { }
 
-    async create(createTransferDto: CreateTransferDto) {
+    async create(
+        createTransferDto: CreateTransferDto,
+    ): Promise<TransferResponseDto> {
         const amount = new Decimal(createTransferDto.amount);
 
         if (amount.lte(0)) {
@@ -68,10 +72,15 @@ export class TransfersService {
                 );
             }
 
-            return existingTransfer;
+            return toTransferResponse(existingTransfer);
         }
 
-        return this.executeWithDeadlockRetry(createTransferDto, amount);
+        const createdTransfer = await this.executeWithDeadlockRetry(
+            createTransferDto,
+            amount,
+        );
+
+        return toTransferResponse(createdTransfer);
     }
 
 

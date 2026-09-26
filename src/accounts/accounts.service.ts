@@ -10,9 +10,11 @@ import { Account } from '../database/entities/account.entity.js';
 import { AccountStatus } from '../database/enums.js';
 import {
   toAccountBalanceResponse,
+  toAccountOptionResponse,
   toAccountResponse,
 } from './accounts.mapper.js';
 import { AccountBalanceResponseDto } from './dto/account-balance-response.dto.js';
+import { AccountOptionResponseDto } from './dto/account-option-response.dto.js';
 import { AccountResponseDto } from './dto/account-response.dto.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
 import { AccountMovement } from '../database/entities/account-movement.entity.js';
@@ -64,6 +66,24 @@ export class AccountsService {
       'No se pudo generar un número de cuenta único.',
       HttpStatus.INTERNAL_SERVER_ERROR,
     );
+  }
+
+  async findOptions(): Promise<AccountOptionResponseDto[]> {
+    const accounts = await this.accountRepository
+      .createQueryBuilder('account')
+      .select([
+        'account.id',
+        'account.accountNumber',
+        'account.holderName',
+        'account.balance',
+        'account.currency',
+        'account.status',
+      ])
+      .where('account.status = :status', { status: AccountStatus.ACTIVE })
+      .orderBy('account.accountNumber', 'ASC')
+      .getMany();
+
+    return accounts.map(toAccountOptionResponse);
   }
 
   async findByIdOrNumber(idOrNumber: string): Promise<AccountResponseDto> {

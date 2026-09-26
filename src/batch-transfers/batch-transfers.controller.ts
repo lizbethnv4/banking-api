@@ -26,6 +26,7 @@ import { RoleName } from '../database/enums.js';
 
 import { BatchTransfersService } from './batch-transfers.service.js';
 import { CreateBatchResponseDto } from './dto/create-batch-response.dto.js';
+import { BatchProcessOptionResponseDto } from './dto/batch-process-option-response.dto.js';
 import { BatchProcessResponseDto } from './dto/batch-process-response.dto.js';
 import { BatchItemsResponseDto } from './dto/batch-items-response.dto.js';
 import { GetBatchItemsQueryDto } from './dto/get-batch-items-query.dto.js';
@@ -69,6 +70,16 @@ export class BatchTransfersController {
         }
 
         return this.batchTransfersService.createBatch(file);
+    }
+
+    @Get('options')
+    @Roles(RoleName.ADMIN, RoleName.USER)
+    @ApiOperation({
+        summary: 'Returns batch processes for batch selectors.',
+    })
+    @ApiOkResponse({ type: BatchProcessOptionResponseDto, isArray: true })
+    findOptions(): Promise<BatchProcessOptionResponseDto[]> {
+        return this.batchTransfersService.findOptions();
     }
 
     @Get(':id')

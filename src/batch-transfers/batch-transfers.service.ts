@@ -7,10 +7,11 @@ import { DomainException } from '../common/errors/domain.exception.js';
 import { BatchProcess } from '../database/entities/batch-process.entity.js';
 import { BatchTransferItem } from '../database/entities/batch-transfer-item.entity.js';
 import { BatchItemStatus, BatchStatus } from '../database/enums.js';
-import { toBatchItemsResponse, toBatchProcessResponse, toCreateBatchResponse } from './batch-transfers.mapper.js';
+import { toBatchItemsResponse, toBatchProcessOptionResponse, toBatchProcessResponse, toCreateBatchResponse } from './batch-transfers.mapper.js';
 import { CreateBatchResponseDto } from './dto/create-batch-response.dto.js';
 import { TransfersService } from '../transfers/transfers.service.js';
 import { AccountsService } from '../accounts/accounts.service.js';
+import { BatchProcessOptionResponseDto } from './dto/batch-process-option-response.dto.js';
 import { BatchProcessResponseDto } from './dto/batch-process-response.dto.js';
 import { GetBatchItemsQueryDto } from './dto/get-batch-items-query.dto.js';
 import { BatchItemsResponseDto } from './dto/batch-items-response.dto.js';
@@ -558,6 +559,25 @@ export class BatchTransfersService {
         batch.completedAt = new Date();
 
         await this.batchProcessRepository.save(batch);
+    }
+
+    async findOptions(): Promise<BatchProcessOptionResponseDto[]> {
+        const batches = await this.batchProcessRepository
+            .createQueryBuilder('batch')
+            .select([
+                'batch.id',
+                'batch.originalFileName',
+                'batch.status',
+                'batch.totalItems',
+                'batch.processedItems',
+                'batch.successfulItems',
+                'batch.failedItems',
+                'batch.createdAt',
+            ])
+            .orderBy('batch.createdAt', 'DESC')
+            .getMany();
+
+        return batches.map(toBatchProcessOptionResponse);
     }
 
     async findById(

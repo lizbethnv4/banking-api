@@ -25,6 +25,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { RoleName } from '../database/enums.js';
 import { AccountsService } from './accounts.service.js';
 import { AccountBalanceResponseDto } from './dto/account-balance-response.dto.js';
+import { AccountOptionResponseDto } from './dto/account-option-response.dto.js';
 import { AccountResponseDto } from './dto/account-response.dto.js';
 import { CreateAccountDto } from './dto/create-account.dto.js';
 import { GetAccountMovementsQueryDto } from './dto/get-account-movements-query.dto.js';
@@ -49,6 +50,16 @@ export class AccountsController {
   @ApiCreatedResponse({ type: AccountResponseDto })
   create(@Body() createAccountDto: CreateAccountDto): Promise<AccountResponseDto> {
     return this.accountsService.create(createAccountDto);
+  }
+
+  @Get('options')
+  @Roles(RoleName.ADMIN, RoleName.USER)
+  @ApiOperation({
+    summary: 'Returns active accounts for account selectors.',
+  })
+  @ApiOkResponse({ type: AccountOptionResponseDto, isArray: true })
+  findOptions(): Promise<AccountOptionResponseDto[]> {
+    return this.accountsService.findOptions();
   }
 
   @Get(':idOrNumber/balance')
