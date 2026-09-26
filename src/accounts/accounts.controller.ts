@@ -8,8 +8,10 @@ import {
   Post,
   Query,
   StreamableFile,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
@@ -17,6 +19,10 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { RoleName } from '../database/enums.js';
 import { AccountsService } from './accounts.service.js';
 import { AccountBalanceResponseDto } from './dto/account-balance-response.dto.js';
 import { AccountResponseDto } from './dto/account-response.dto.js';
@@ -30,11 +36,14 @@ import {
 } from './dto/get-account-statement-query.dto.js';
 
 @ApiTags('accounts')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('accounts')
 export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Post()
+  @Roles(RoleName.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Crear cuenta (saldo inicial 0, número generado)' })
   @ApiCreatedResponse({ type: AccountResponseDto })

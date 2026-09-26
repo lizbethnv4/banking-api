@@ -7,7 +7,9 @@ import {
   AccountMovement,
   BatchProcess,
   BatchTransferItem,
+  Role,
   Transfer,
+  User,
 } from '../database/entities/index.js';
 
 const databaseDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'database');
@@ -30,6 +32,8 @@ export function buildTypeOrmOptions(
       AccountMovement,
       BatchProcess,
       BatchTransferItem,
+      Role,
+      User,
     ],
     migrations: [join(databaseDir, 'migrations', '*.{ts,js}')],
     logging: config.get<string>('NODE_ENV') !== 'production',

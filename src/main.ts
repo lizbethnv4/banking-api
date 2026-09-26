@@ -41,6 +41,7 @@ async function bootstrap() {
         'Incluye el caso de concurrencia con saldo RD$10,000 y transferencias simultáneas de RD$8,000 y RD$7,000.',
     )
     .setVersion('1.0')
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);

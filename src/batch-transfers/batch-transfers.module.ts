@@ -4,6 +4,7 @@ import { BatchTransfersService } from './batch-transfers.service.js';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BatchProcess } from '../database/entities/batch-process.entity.js';
 import { BatchTransferItem } from '../database/entities/batch-transfer-item.entity.js';
+import { AuthModule } from '../auth/auth.module.js';
 import { TransfersModule } from '../transfers/transfers.module.js';
 import { AccountsModule } from '../accounts/accounts.module.js';
 
@@ -13,6 +14,7 @@ import { AccountsModule } from '../accounts/accounts.module.js';
       BatchProcess, 
       BatchTransferItem
     ]),
+    AuthModule,
     TransfersModule,
     AccountsModule,
   ],

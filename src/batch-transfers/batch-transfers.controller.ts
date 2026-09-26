@@ -4,11 +4,13 @@ import {
     Param,
     Post,
     UploadedFile,
+    UseGuards,
     UseInterceptors,
     Get,
     Query,
 } from '@nestjs/common';
 import {
+    ApiBearerAuth,
     ApiBody,
     ApiConsumes,
     ApiCreatedResponse,
@@ -17,6 +19,10 @@ import {
     ApiTags,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { RoleName } from '../database/enums.js';
 
 import { BatchTransfersService } from './batch-transfers.service.js';
 import { CreateBatchResponseDto } from './dto/create-batch-response.dto.js';
@@ -25,6 +31,8 @@ import { BatchItemsResponseDto } from './dto/batch-items-response.dto.js';
 import { GetBatchItemsQueryDto } from './dto/get-batch-items-query.dto.js';
 
 @ApiTags('Batch Transfers')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('batch-transfers')
 export class BatchTransfersController {
     constructor(
@@ -32,6 +40,7 @@ export class BatchTransfersController {
     ) { }
 
     @Post()
+    @Roles(RoleName.ADMIN)
     @UseInterceptors(FileInterceptor('file'))
     @ApiOperation({
         summary: 'Create batch transfer process from CSV',
