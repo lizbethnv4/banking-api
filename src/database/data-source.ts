@@ -8,6 +8,8 @@ import {
   BatchProcess,
   BatchTransferItem,
   Transfer,
+  Role,
+  User,
 } from './entities/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +29,8 @@ const AppDataSource = new DataSource({
     AccountMovement,
     BatchProcess,
     BatchTransferItem,
+    Role,
+    User,
   ],
   migrations: [join(__dirname, 'migrations', '*.{ts,js}')],
   options: {

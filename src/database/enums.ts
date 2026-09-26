@@ -31,3 +31,8 @@ export enum BatchItemStatus {
   FAILED = 'FAILED',
   RETRYING = 'RETRYING',
 }
+
+export enum UserStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+}
