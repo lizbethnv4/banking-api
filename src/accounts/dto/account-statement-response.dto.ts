@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import { AccountStatus } from '../../database/enums.js';
-import { AccountMovementResponseDto } from './account-movement-response.dto.js';
+import { AccountMovementsResponseDto } from './account-movements-response.dto.js';
 
 export class AccountStatementAccountDto {
   @ApiProperty({ format: 'uuid' })
@@ -52,9 +52,6 @@ export class AccountStatementResponseDto {
   @ApiProperty({ type: AccountStatementSummaryDto })
   summary!: AccountStatementSummaryDto;
 
-  @ApiProperty({
-    type: AccountMovementResponseDto,
-    isArray: true,
-  })
-  movements!: AccountMovementResponseDto[];
+  @ApiProperty({ type: AccountMovementsResponseDto })
+  movements!: AccountMovementsResponseDto;
 }

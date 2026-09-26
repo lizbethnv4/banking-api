@@ -7,11 +7,14 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { AccountsService } from './accounts.service.js';
@@ -21,7 +24,10 @@ import { CreateAccountDto } from './dto/create-account.dto.js';
 import { GetAccountMovementsQueryDto } from './dto/get-account-movements-query.dto.js';
 import { AccountMovementsResponseDto } from './dto/account-movements-response.dto.js';
 import { AccountStatementResponseDto } from './dto/account-statement-response.dto.js';
-import { GetAccountStatementQueryDto } from './dto/get-account-statement-query.dto.js';
+import {
+  GetAccountStatementPeriodQueryDto,
+  GetAccountStatementQueryDto,
+} from './dto/get-account-statement-query.dto.js';
 
 @ApiTags('accounts')
 @Controller('accounts')
@@ -64,8 +70,53 @@ export class AccountsController {
     return this.accountsService.getMovements(idOrNumber, filters);
   }
 
+  @Get(':idOrNumber/statement/pdf')
+  @ApiOperation({
+    summary: 'Descargar el estado de cuenta del período completo en PDF',
+    description:
+      'Devuelve application/pdf con todos los movimientos del mes. No usa page ni pageSize. El resumen se calcula en SQL sobre el período completo.',
+  })
+  @ApiQuery({ name: 'year', required: true, example: 2026, type: Number })
+  @ApiQuery({ name: 'month', required: true, example: 9, type: Number })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'Archivo PDF del estado de cuenta.',
+    content: {
+      'application/pdf': {
+        schema: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  async getStatementPdf(
+    @Param('idOrNumber') idOrNumber: string,
+    @Query() filters: GetAccountStatementPeriodQueryDto,
+  ): Promise<StreamableFile> {
+    const file = await this.accountsService.getStatementPdf(
+      idOrNumber,
+      filters,
+    );
+
+    return new StreamableFile(file.buffer, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${file.filename}"`,
+    });
+  }
+
   @Get(':idOrNumber/statement')
-  @ApiOperation({ summary: 'Consultar estado de cuenta por id o número de cuenta' })
+  @ApiOperation({
+    summary: 'Consultar estado de cuenta por id o número de cuenta',
+    description:
+      'El resumen cubre todo el mes. movements.data trae solo la página pedida.',
+  })
+  @ApiQuery({ name: 'year', required: true, example: 2026, type: Number })
+  @ApiQuery({ name: 'month', required: true, example: 9, type: Number })
+  @ApiQuery({ name: 'page', required: false, example: 1, type: Number })
+  @ApiQuery({
+    name: 'pageSize',
+    required: false,
+    example: 20,
+    type: Number,
+  })
   @ApiOkResponse({ type: AccountStatementResponseDto })
   getStatement(
     @Param('idOrNumber') idOrNumber: string,

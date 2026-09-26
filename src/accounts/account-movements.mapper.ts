@@ -1,5 +1,3 @@
-import Decimal from 'decimal.js';
-
 import { formatMoneyString } from "../common/utils/utils.js";
 import { AccountMovement } from "../database/entities/account-movement.entity.js";
 import { AccountMovementResponseDto } from "./dto/account-movement-response.dto.js";
@@ -49,6 +47,9 @@ export function toAccountStatementResponse(
   to: string,
   totalCredits: string,
   totalDebits: string,
+  page: number,
+  pageSize: number,
+  total: number,
 ): AccountStatementResponseDto {
   return {
     account: {
@@ -68,6 +69,11 @@ export function toAccountStatementResponse(
       totalCredits: formatMoneyString(totalCredits),
       totalDebits: formatMoneyString(totalDebits),
     },
-    movements: movements.map(toAccountMovementResponse),
+    movements: toAccountMovementsResponse(
+      movements,
+      page,
+      pageSize,
+      total,
+    ),
   };
 }

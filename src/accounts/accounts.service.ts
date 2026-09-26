@@ -19,9 +19,11 @@ import { AccountMovement } from '../database/entities/account-movement.entity.js
 import { GetAccountMovementsQueryDto } from './dto/get-account-movements-query.dto.js';
 import { AccountMovementsResponseDto } from './dto/account-movements-response.dto.js';
 import { toAccountMovementsResponse, toAccountStatementResponse } from './account-movements.mapper.js';
-import { GetAccountStatementQueryDto } from './dto/get-account-statement-query.dto.js';
+import { GetAccountStatementPeriodQueryDto, GetAccountStatementQueryDto } from './dto/get-account-statement-query.dto.js';
 import { AccountStatementResponseDto } from './dto/account-statement-response.dto.js';
-import { In } from 'typeorm';
+import { In, SelectQueryBuilder } from 'typeorm';
+import { buildStatementPdf, statementPdfFilename } from './statement-pdf.js';
+import { formatMoneyString } from '../common/utils/utils.js';
 
 const MAX_ACCOUNT_NUMBER_ATTEMPTS = 5;
 
@@ -150,25 +152,111 @@ export class AccountsService {
     filters: GetAccountStatementQueryDto,
   ): Promise<AccountStatementResponseDto> {
     const account = await this.findAccountEntity(idOrNumber);
-    const { year, month } = filters;
-    const fromDate = new Date(year, month - 1, 1).toISOString();
-    const toDate = new Date(year, month, 0).toISOString();
+    const { year, month, page = 1, pageSize = 20 } = filters;
+    const period = this.buildStatementPeriod(year, month);
 
-    const movements = await this.accountMovementRepository
+    const [movements, total] = await this.statementMovementsQuery(
+      account.id,
+      period.fromDate,
+      period.toDate,
+    )
+      .skip((page - 1) * pageSize)
+      .take(pageSize)
+      .getManyAndCount();
+
+    const totals = await this.statementTotals(
+      account.id,
+      period.fromDate,
+      period.toDate,
+    );
+
+    return toAccountStatementResponse(
+      account,
+      movements,
+      year,
+      month,
+      period.from,
+      period.to,
+      totals.totalCredits,
+      totals.totalDebits,
+      page,
+      pageSize,
+      total,
+    );
+  }
+
+  async getStatementPdf(
+    idOrNumber: string,
+    filters: GetAccountStatementPeriodQueryDto,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const account = await this.findAccountEntity(idOrNumber);
+    const period = this.buildStatementPeriod(filters.year, filters.month);
+
+    const [movements, totals] = await Promise.all([
+      this.statementMovementsQuery(
+        account.id,
+        period.fromDate,
+        period.toDate,
+      ).getMany(),
+      this.statementTotals(account.id, period.fromDate, period.toDate),
+    ]);
+
+    const totalCredits = formatMoneyString(totals.totalCredits);
+    const totalDebits = formatMoneyString(totals.totalDebits);
+    const buffer = await buildStatementPdf({
+      account,
+      year: filters.year,
+      month: filters.month,
+      from: period.from,
+      to: period.to,
+      totalCredits,
+      totalDebits,
+      movements,
+    });
+
+    return {
+      buffer,
+      filename: statementPdfFilename(
+        account.accountNumber,
+        filters.year,
+        filters.month,
+      ),
+    };
+  }
+
+  private buildStatementPeriod(year: number, month: number) {
+    const fromDate = new Date(Date.UTC(year, month - 1, 1));
+    const toDate = new Date(Date.UTC(year, month, 1));
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const monthText = String(month).padStart(2, '0');
+
+    return {
+      fromDate,
+      toDate,
+      from: `${year}-${monthText}-01`,
+      to: `${year}-${monthText}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }
+
+  private statementMovementsQuery(
+    accountId: string,
+    fromDate: Date,
+    toDate: Date,
+  ): SelectQueryBuilder<AccountMovement> {
+    return this.accountMovementRepository
       .createQueryBuilder('movement')
-      .where('movement.accountId = :accountId', {
-        accountId: account.id
-      })
-      .andWhere('movement.createdAt >= :fromDate', {
-        fromDate
-      })
-      .andWhere('movement.createdAt <= :toDate', {
-        toDate
-      })
+      .where('movement.accountId = :accountId', { accountId })
+      .andWhere('movement.createdAt >= :fromDate', { fromDate })
+      .andWhere('movement.createdAt < :toDate', { toDate })
       .orderBy('movement.createdAt', 'ASC')
-      .addOrderBy('movement.id', 'ASC')
-      .getMany();
+      .addOrderBy('movement.id', 'ASC');
+  }
 
+  private async statementTotals(
+    accountId: string,
+    fromDate: Date,
+    toDate: Date,
+  ): Promise<{ totalCredits: string; totalDebits: string }> {
     const totals = await this.accountMovementRepository
       .createQueryBuilder('movement')
       .select(
@@ -201,38 +289,18 @@ export class AccountsService {
         `,
         'totalDebits',
       )
-      .where('movement.accountId = :accountId', {
-        accountId: account.id,
-      })
-      .andWhere('movement.createdAt >= :fromDate', {
-        fromDate,
-      })
-      .andWhere('movement.createdAt < :toDate', {
-        toDate,
-      })
+      .where('movement.accountId = :accountId', { accountId })
+      .andWhere('movement.createdAt >= :fromDate', { fromDate })
+      .andWhere('movement.createdAt < :toDate', { toDate })
       .getRawOne<{
-        totalCredits: string;
-        totalDebits: string;
+        totalCredits: string | number;
+        totalDebits: string | number;
       }>();
 
-    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-    const from = `${year}-${String(month).padStart(2, '0')}-01`;
-
-    const to = `${year}-${String(month).padStart(2, '0')}-${String(
-      lastDay,
-    ).padStart(2, '0')}`;
-
-    return toAccountStatementResponse(
-      account,
-      movements,
-      year,
-      month,
-      from,
-      to,
-      totals?.totalCredits ?? '0',
-      totals?.totalDebits ?? '0',
-    );
+    return {
+      totalCredits: String(totals?.totalCredits ?? '0'),
+      totalDebits: String(totals?.totalDebits ?? '0'),
+    };
   }
 
   async findAccountsByNumbers(
