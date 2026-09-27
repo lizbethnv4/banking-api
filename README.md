@@ -64,7 +64,9 @@ El lote no usa Redis, BullMQ ni un worker aparte. `POST /api/batch-transfers` va
 
 ### Infraestructura
 
-- Docker y Docker Compose, para ejecutar SQL Server en desarrollo
+- Docker y Docker Compose
+- SQL Server 2022 en contenedor
+- API NestJS con imagen Docker multi-stage basada en Node.js 24
 
 El dinero se guarda como `decimal(19,4)`. Los cálculos de la aplicación usan `decimal.js`, no el tipo `number` de JavaScript.
 
@@ -99,7 +101,7 @@ El mapeo `14333:1433` evita chocar con un SQL Server local de Windows que ya use
 npm install
 ```
 
-1. Crear el archivo de entorno.
+2. Crear el archivo de entorno.
 
 ```bash
 cp .env.example .env
@@ -107,22 +109,22 @@ cp .env.example .env
 
 En Windows se puede copiar `.env.example` como `.env`. `MSSQL_SA_PASSWORD` y `DB_PASSWORD` deben ser la misma contraseña. SQL Server exige mayúsculas, minúsculas, números y símbolos.
 
-1. Levantar SQL Server y esperar a que el healthcheck quede `healthy`.
+3. Levantar únicamente SQL Server y esperar a que el healthcheck quede `healthy`.
 
 ```bash
-docker compose up -d
+docker compose up -d sqlserver
 docker compose ps
 ```
 
-1. Crear la base `banking` la primera vez.
+4. Crear la base `banking` la primera vez.
 
 ```powershell
 docker exec -it banking-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "ChangeMe_StrongPass1" -C -Q "IF DB_ID('banking') IS NULL CREATE DATABASE banking;"
 ```
 
-Sustituir `ChangeMe_StrongPass1` por la contraseña local.
+Sustituir `ChangeMe_StrongPass1` por la contraseña configurada en `.env`.
 
-1. Aplicar el esquema y los datos iniciales.
+5. Aplicar el esquema y los datos iniciales.
 
 ```bash
 npm run migration:run
@@ -131,15 +133,45 @@ npm run seed:admin
 npm run seed:demo
 ```
 
-1. Arrancar la API.
+Las migraciones crean el esquema y el procedimiento almacenado `dbo.usp_execute_transfer`.
+
+6. Levantar la API.
+
+Con Docker:
+
+```bash
+docker compose up -d --build api
+```
+
+Para verificar los contenedores:
+
+```bash
+docker compose ps
+```
+
+SQL Server debe aparecer como `healthy` y la API como `Up`.
+
+También se puede ejecutar la API localmente para desarrollo:
 
 ```bash
 npm run start:dev
 ```
 
-1. Abrir Swagger en [http://localhost:3001/api/docs](http://localhost:3001/api/docs).
+7. Abrir Swagger en [http://localhost:3001/api/docs](http://localhost:3001/api/docs).
 
-Para detener SQL Server sin borrar datos: `docker compose stop`. `docker compose down` elimina el contenedor y conserva el volumen.
+Para ver los logs de la API dockerizada:
+
+```bash
+docker compose logs -f api
+```
+
+Para detener los contenedores conservando los datos:
+
+```bash
+docker compose stop
+```
+
+`docker compose down` elimina los contenedores y conserva el volumen. `docker compose down -v` elimina también el volumen de SQL Server; después será necesario crear nuevamente la base `banking`, aplicar las migraciones y ejecutar los seeds.
 
 ---
 
@@ -183,6 +215,18 @@ Compilar y ejecutar la build:
 ```bash
 npm run build
 npm run start:prod
+```
+
+Ejecutar la API con Docker:
+
+```bash
+docker compose up -d --build api
+```
+
+Ver logs de la API:
+
+```bash
+docker compose logs -f api
 ```
 
 Con la API en marcha:
@@ -389,7 +433,7 @@ Con el volumen de `npm run seed:volume` (200,000 movimientos o más), el plan de
 
 ### Valor agregado ya incluido
 
-JWT, roles `ADMIN` y `USER`, y SQL Server en Docker Compose forman parte de esta entrega. No hay imagen Docker de la API ni rate limit de login. Las pruebas automáticas son las de Vitest; la prueba de aceptación del dinero concurrente es `npm run test:concurrency:example`.
+JWT, roles `ADMIN` y `USER`, SQL Server en Docker Compose y una imagen Docker multi-stage de la API forman parte de esta entrega. No se implementó rate limit de login. Las pruebas automáticas son las de Vitest; la prueba de aceptación del dinero concurrente es `npm run test:concurrency:example`.
 
 ---
 

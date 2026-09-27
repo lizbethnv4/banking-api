@@ -33,7 +33,7 @@ services:
       DB_HOST: sqlserver
       DB_PORT: 1433
       DB_USER: "${DB_USER}"
-      DB_PASSWORD: "${DB_PASSWORD}"
+      DB_PASSWORD: "${MSSQL_SA_PASSWORD}"
       DB_NAME: "${DB_NAME}"
       DB_ENCRYPT: "${DB_ENCRYPT}"
       DB_TRUST_SERVER_CERTIFICATE: "${DB_TRUST_SERVER_CERTIFICATE}"
