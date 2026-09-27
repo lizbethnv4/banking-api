@@ -1,30 +1,72 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import { Decimal } from 'decimal.js';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 import { DomainException } from '../common/errors/domain.exception.js';
 import { generateTransferReference } from '../common/utils/utils.js';
-import { AccountMovement } from '../database/entities/account-movement.entity.js';
-import { Account } from '../database/entities/account.entity.js';
 import { Transfer } from '../database/entities/transfer.entity.js';
-import {
-    AccountStatus,
-    MovementType,
-    TransferStatus,
-} from '../database/enums.js';
+import { TransferStatus } from '../database/enums.js';
 import { CreateTransferDto } from './dto/create-transfer.dto.js';
 import { TransferResponseDto } from './dto/transfer-response.dto.js';
 import { toTransferResponse } from './transfers.mapper.js';
 
+type ExecuteTransferRow = {
+    result_code: string;
+    id: string | null;
+    reference: string | null;
+    source_account_id: string | null;
+    destination_account_id: string | null;
+    amount: string | number | null;
+    status: TransferStatus | null;
+    idempotency_key: string | null;
+    failure_code: string | null;
+    failure_message: string | null;
+    created_at: Date | null;
+    completed_at: Date | null;
+};
+
+const PROCEDURE_ERRORS: Record<
+    string,
+    { message: string; httpStatus: number }
+> = {
+    INVALID_AMOUNT: {
+        message: 'El monto debe ser mayor a 0',
+        httpStatus: HttpStatus.BAD_REQUEST,
+    },
+    SAME_ACCOUNT_TRANSFER: {
+        message: 'La cuenta de origen y destino deben ser diferentes.',
+        httpStatus: HttpStatus.BAD_REQUEST,
+    },
+    SOURCE_ACCOUNT_NOT_FOUND: {
+        message: 'La cuenta de origen no existe',
+        httpStatus: HttpStatus.NOT_FOUND,
+    },
+    DESTINATION_ACCOUNT_NOT_FOUND: {
+        message: 'La cuenta de destino no existe',
+        httpStatus: HttpStatus.NOT_FOUND,
+    },
+    SOURCE_ACCOUNT_NOT_ACTIVE: {
+        message: 'La cuenta de origen no está activa',
+        httpStatus: HttpStatus.BAD_REQUEST,
+    },
+    DESTINATION_ACCOUNT_NOT_ACTIVE: {
+        message: 'La cuenta de destino no está activa',
+        httpStatus: HttpStatus.BAD_REQUEST,
+    },
+    INSUFFICIENT_BALANCE: {
+        message: 'El saldo de la cuenta de origen no es suficiente',
+        httpStatus: HttpStatus.BAD_REQUEST,
+    },
+    IDEMPOTENCY_KEY_CONFLICT: {
+        message:
+            'La clave de idempotencia ya fue utilizada para otra transferencia.',
+        httpStatus: HttpStatus.CONFLICT,
+    },
+};
+
 @Injectable()
 export class TransfersService {
-    constructor(
-        private readonly dataSource: DataSource,
-
-        @InjectRepository(Transfer)
-        private readonly transferRepository: Repository<Transfer>,
-    ) { }
+    constructor(private readonly dataSource: DataSource) { }
 
     async create(
         createTransferDto: CreateTransferDto,
@@ -48,31 +90,6 @@ export class TransfersService {
                 'La cuenta de origen y destino deben ser diferentes.',
                 HttpStatus.BAD_REQUEST,
             );
-        }
-
-        const existingTransfer = await this.transferRepository.findOne({
-            where: {
-                idempotencyKey: createTransferDto.idempotencyKey,
-            },
-        });
-
-        if (existingTransfer) {
-            const sameRequest =
-                existingTransfer.sourceAccountId.toLowerCase() ===
-                createTransferDto.sourceAccountId.toLowerCase() &&
-                existingTransfer.destinationAccountId.toLowerCase() ===
-                createTransferDto.destinationAccountId.toLowerCase() &&
-                new Decimal(existingTransfer.amount).eq(createTransferDto.amount);
-
-            if (!sameRequest) {
-                throw new DomainException(
-                    'IDEMPOTENCY_KEY_CONFLICT',
-                    'La clave de idempotencia ya fue utilizada para otra transferencia.',
-                    HttpStatus.CONFLICT,
-                );
-            }
-
-            return toTransferResponse(existingTransfer);
         }
 
         const createdTransfer = await this.executeWithDeadlockRetry(
@@ -120,159 +137,69 @@ export class TransfersService {
     private async executeTransfer(
         createTransferDto: CreateTransferDto,
         amount: Decimal,
-    ) {
+    ): Promise<Transfer> {
         const queryRunner = this.dataSource.createQueryRunner();
 
         await queryRunner.connect();
-        await queryRunner.startTransaction();
 
         try {
-
-            const accounts: Account[] = await queryRunner.query(
+            const rows: ExecuteTransferRow[] = await queryRunner.query(
                 `
-                SELECT id, balance, status
-                FROM accounts WITH (UPDLOCK, ROWLOCK, HOLDLOCK)
-                WHERE id IN (@0, @1)
-                ORDER BY id;
+                EXEC dbo.usp_execute_transfer
+                    @0,
+                    @1,
+                    @2,
+                    @3,
+                    @4;
                 `,
                 [
                     createTransferDto.sourceAccountId,
                     createTransferDto.destinationAccountId,
+                    amount.toFixed(4),
+                    createTransferDto.idempotencyKey,
+                    generateTransferReference(),
                 ],
             );
 
-            const sourceAccount = accounts.find(
-                (account) =>
-                    account.id.toLowerCase() ===
-                    createTransferDto.sourceAccountId.toLowerCase(),
-            );
-
-            const destinationAccount = accounts.find(
-                (account) =>
-                    account.id.toLowerCase() ===
-                    createTransferDto.destinationAccountId.toLowerCase(),
-            );
-
-            if (!sourceAccount) {
-                throw new DomainException(
-                    'SOURCE_ACCOUNT_NOT_FOUND',
-                    'La cuenta de origen no existe',
-                    HttpStatus.NOT_FOUND,
-                );
-            }
-
-            if (!destinationAccount) {
-                throw new DomainException(
-                    'DESTINATION_ACCOUNT_NOT_FOUND',
-                    'La cuenta de destino no existe',
-                    HttpStatus.NOT_FOUND,
-                );
-            }
-
-            if (sourceAccount.status !== AccountStatus.ACTIVE) {
-                throw new DomainException(
-                    'SOURCE_ACCOUNT_NOT_ACTIVE',
-                    'La cuenta de origen no está activa',
-                    HttpStatus.BAD_REQUEST,
-                );
-            }
-
-            if (destinationAccount.status !== AccountStatus.ACTIVE) {
-                throw new DomainException(
-                    'DESTINATION_ACCOUNT_NOT_ACTIVE',
-                    'La cuenta de destino no está activa',
-                    HttpStatus.BAD_REQUEST,
-                );
-            }
-
-            const sourceBalance = new Decimal(sourceAccount.balance);
-            const destinationBalance = new Decimal(destinationAccount.balance);
-
-            if (sourceBalance.lt(amount)) {
-                throw new DomainException(
-                    'INSUFFICIENT_BALANCE',
-                    'El saldo de la cuenta de origen no es suficiente',
-                    HttpStatus.BAD_REQUEST,
-                );
-            }
-
-            const sourceBalanceAfter = sourceBalance.minus(amount);
-            const destinationBalanceAfter = destinationBalance.plus(amount);
-
-            const transferRepository =
-                queryRunner.manager.getRepository(Transfer);
-
-            const movementRepository =
-                queryRunner.manager.getRepository(AccountMovement);
-
-            const transfer = transferRepository.create({
-                reference: generateTransferReference(),
-                sourceAccountId: sourceAccount.id,
-                destinationAccountId: destinationAccount.id,
-                amount: amount.toFixed(4),
-                status: TransferStatus.COMPLETED,
-                idempotencyKey: createTransferDto.idempotencyKey,
-                completedAt: new Date(),
-            });
-
-            const createdTransfer =
-                await transferRepository.save(transfer);
-
-            await queryRunner.manager.update(
-                Account,
-                { id: sourceAccount.id },
-                {
-                    balance: sourceBalanceAfter.toFixed(4),
-                },
-            );
-
-            await queryRunner.manager.update(
-                Account,
-                { id: destinationAccount.id },
-                {
-                    balance: destinationBalanceAfter.toFixed(4),
-                },
-            );
-
-            const debitMovement = movementRepository.create({
-                accountId: sourceAccount.id,
-                transferId: createdTransfer.id,
-                type: MovementType.DEBIT,
-                amount: amount.toFixed(4),
-                balanceBefore: sourceBalance.toFixed(4),
-                balanceAfter: sourceBalanceAfter.toFixed(4),
-                description:
-                    `Transferencia de fondos de ${sourceAccount.id} ` +
-                    `a ${destinationAccount.id}`,
-            });
-
-            const creditMovement = movementRepository.create({
-                accountId: destinationAccount.id,
-                transferId: createdTransfer.id,
-                type: MovementType.CREDIT,
-                amount: amount.toFixed(4),
-                balanceBefore: destinationBalance.toFixed(4),
-                balanceAfter: destinationBalanceAfter.toFixed(4),
-                description:
-                    `Transferencia de fondos de ${sourceAccount.id} ` +
-                    `a ${destinationAccount.id}`,
-            });
-
-            await movementRepository.save([
-                debitMovement,
-                creditMovement,
-            ]);
-
-            await queryRunner.commitTransaction();
-
-            return createdTransfer;
-        } catch (error: unknown) {
-            await queryRunner.rollbackTransaction();
-
-            throw error;
+            return this.toTransferFromProcedure(rows[0]);
         } finally {
             await queryRunner.release();
         }
+    }
+
+    private toTransferFromProcedure(row: ExecuteTransferRow | undefined): Transfer {
+        if (!row) {
+            throw new DomainException(
+                'INTERNAL_ERROR',
+                'La transferencia no devolvió un resultado.',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+
+        if (row.result_code !== 'OK') {
+            const procedureError = PROCEDURE_ERRORS[row.result_code];
+
+            throw new DomainException(
+                row.result_code,
+                procedureError?.message ??
+                    'No se pudo completar la transferencia.',
+                procedureError?.httpStatus ?? HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+
+        return {
+            id: row.id ?? '',
+            reference: row.reference ?? '',
+            sourceAccountId: row.source_account_id ?? '',
+            destinationAccountId: row.destination_account_id ?? '',
+            amount: String(row.amount),
+            status: row.status ?? TransferStatus.COMPLETED,
+            idempotencyKey: row.idempotency_key ?? '',
+            failureCode: row.failure_code,
+            failureMessage: row.failure_message,
+            createdAt: row.created_at ?? new Date(),
+            completedAt: row.completed_at,
+        } as Transfer;
     }
 
     private isDeadlockError(error: unknown): boolean {
@@ -282,6 +209,9 @@ export class TransfersService {
 
         const dbError = error as {
             number?: number;
+            driverError?: {
+                number?: number;
+            };
             originalError?: {
                 info?: {
                     number?: number;
@@ -291,6 +221,7 @@ export class TransfersService {
 
         return (
             dbError.number === 1205 ||
+            dbError.driverError?.number === 1205 ||
             dbError.originalError?.info?.number === 1205
         );
     }

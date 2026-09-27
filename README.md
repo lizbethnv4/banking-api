@@ -1,14 +1,50 @@
 # Banking API
 
-API REST desarrollada con **NestJS + TypeScript + SQL Server** para la gestión de cuentas bancarias, transferencias atómicas, movimientos, estados de cuenta y procesamiento masivo de transferencias mediante archivos CSV.
-
-La solución pone especial énfasis en la **consistencia financiera bajo concurrencia**, utilizando transacciones SQL Server, bloqueo pesimista, orden determinístico de locks, idempotencia y manejo de deadlocks.
-
-También incluye autenticación mediante **JWT**, autorización basada en roles, documentación **Swagger/OpenAPI**, generación de estados de cuenta en PDF y scripts para reproducir escenarios de concurrencia y volumen.
+API REST de cuentas y transferencias bancarias. Este repositorio implementa el backend con NestJS, TypeScript y SQL Server. El criterio central es la consistencia del saldo cuando dos transferencias compiten por la misma cuenta.
 
 ---
 
-## 1. Tecnologías
+## Descripción de la solución
+
+El banco necesita registrar cuentas, mover dinero entre ellas y procesar lotes de transferencias sin dejar un saldo inconsistente o negativo.
+
+La API permite:
+
+- Crear cuentas y consultarlas por id o por número.
+- Consultar el balance y el estado de la cuenta.
+- Listar movimientos con filtros de fecha, tipo y monto, paginados en SQL Server.
+- Ejecutar una transferencia atómica entre dos cuentas.
+- Cargar un CSV de hasta 10,000 transferencias, procesarlo en segundo plano y consultar el progreso, los éxitos y los fallos.
+- Generar el estado de cuenta mensual en JSON y en PDF.
+- Autenticar con JWT y autorizar por los roles `ADMIN` y `USER`.
+
+El caso que define la evaluación es este: una cuenta tiene RD$10,000 y recibe al mismo tiempo una transferencia de RD$8,000 y otra de RD$7,000. Solo una puede aprobarse. El saldo queda en RD$2,000 o en RD$3,000. No hay saldo negativo ni un débito sin su crédito.
+
+El cliente web no vive en este repositorio. La API acepta llamadas desde `http://localhost:3000`.
+
+---
+
+## Arquitectura
+
+```text
+Cliente (Swagger o web en el puerto 3000)
+        │
+        ▼
+API NestJS  ── el proceso del lote vive aquí
+        │
+        ▼
+SQL Server
+  cuentas, transferencias, movimientos, lotes
+  dbo.usp_execute_transfer
+```
+
+Cada transferencia individual entra a SQL Server con una sola llamada al procedimiento `dbo.usp_execute_transfer`. Ese procedimiento abre la transacción, bloquea las cuentas, actualiza los dos saldos e inserta la transferencia y los dos movimientos. Hace `COMMIT` solo si todo eso termina bien. Si algo falla, hace `ROLLBACK`.
+
+El lote no usa Redis, BullMQ ni un worker aparte. `POST /api/batch-transfers` valida el CSV, guarda el proceso y responde con el id. El procesamiento sigue dentro del mismo proceso Nest, fila por fila, reutilizando el mismo procedimiento. Una fila fallida no revierte las filas que ya hicieron `COMMIT`.
+
+---
+
+## Tecnologías utilizadas
 
 ### Backend
 
@@ -16,7 +52,7 @@ También incluye autenticación mediante **JWT**, autorización basada en roles,
 - NestJS
 - TypeScript
 - TypeORM
-- SQL Server
+- SQL Server 2022
 - `decimal.js`
 - JWT / Passport
 - bcrypt
@@ -28,246 +64,65 @@ También incluye autenticación mediante **JWT**, autorización basada en roles,
 
 ### Infraestructura
 
-- Docker
-- Docker Compose
-- SQL Server ejecutado en contenedor durante desarrollo
+- Docker y Docker Compose, para ejecutar SQL Server en desarrollo
+
+El dinero se guarda como `decimal(19,4)`. Los cálculos de la aplicación usan `decimal.js`, no el tipo `number` de JavaScript.
 
 ---
 
-## 2. Funcionalidades principales
+## Requisitos
 
-La API implementa:
-
-- Creación y consulta de cuentas.
-- Consulta de balance.
-- Consulta de movimientos con filtros y paginación.
-- Transferencias bancarias atómicas.
-- Protección ante transferencias concurrentes sobre una misma cuenta.
-- Idempotencia de transferencias.
-- Procesamiento batch de transferencias mediante CSV.
-- Seguimiento del progreso de procesos batch.
-- Registro individual de operaciones exitosas y fallidas.
-- Generación de datos de volumen.
-- Estados de cuenta mensuales.
-- Exportación de estados de cuenta a PDF.
-- Autenticación JWT.
-- Autorización mediante roles `ADMIN` y `USER`.
-- Documentación Swagger/OpenAPI.
-
----
-
-# 3. Requisitos
-
-- **Node.js 20+**
-- **Docker Desktop**
+- Node.js 20 o superior
 - npm
+- Docker Desktop
 
-SQL Server se ejecuta mediante Docker para el entorno local.
+Puertos de este entorno:
+
+
+| Servicio                         | Puerto                             |
+| -------------------------------- | ---------------------------------- |
+| SQL Server dentro del contenedor | `1433`                             |
+| SQL Server publicado en el host  | `14333` (`DB_PORT`)                |
+| API                              | `3001` (`PORT` del `.env.example`) |
+| Cliente permitido por CORS       | `3000`                             |
+
+
+El mapeo `14333:1433` evita chocar con un SQL Server local de Windows que ya use el `1433`. Si `PORT` no está definido, la API escucha en `3000`. El script del caso concurrente llama a `http://localhost:3001/api`, así que el `.env` de desarrollo debe dejar la API en `3001`.
 
 ---
 
-# 4. Configuración inicial
+## Instalación y configuración
 
-Instalar las dependencias:
+1. Clonar el repositorio e instalar dependencias.
 
 ```bash
 npm install
 ```
 
-Crear el archivo de variables de entorno:
+1. Crear el archivo de entorno.
 
 ```bash
 cp .env.example .env
 ```
 
-En Windows también puede copiarse manualmente `.env.example` como `.env`.
+En Windows se puede copiar `.env.example` como `.env`. `MSSQL_SA_PASSWORD` y `DB_PASSWORD` deben ser la misma contraseña. SQL Server exige mayúsculas, minúsculas, números y símbolos.
 
-Configura las variables correspondientes en `.env`.
-
-La contraseña utilizada en:
-
-```env
-MSSQL_SA_PASSWORD
-DB_PASSWORD
-```
-
-debe ser la misma.
-
-SQL Server exige una contraseña suficientemente fuerte, con mayúsculas, minúsculas, números y símbolos.
-
----
-
-# 5. SQL Server con Docker
-
-El proyecto utiliza SQL Server mediante Docker Compose.
-
-Por defecto, SQL Server se expone en el host mediante:
-
-```text
-localhost:14333
-```
-
-mapeado al puerto interno:
-
-```text
-1433
-```
-
-del contenedor.
-
-Esto evita conflictos con una instalación local de SQL Server en Windows que ya esté utilizando el puerto `1433`.
-
-## Levantar SQL Server
+1. Levantar SQL Server y esperar a que el healthcheck quede `healthy`.
 
 ```bash
 docker compose up -d
-```
-
-Comprobar el estado:
-
-```bash
 docker compose ps
 ```
 
-Ver los logs:
-
-```bash
-docker compose logs -f sqlserver
-```
-
-Es importante esperar a que el healthcheck del contenedor indique:
-
-```text
-healthy
-```
-
-antes de ejecutar migraciones o iniciar la aplicación.
-
-## Detener SQL Server sin borrar datos
-
-```bash
-docker compose stop
-```
-
-## Bajar contenedor y red
-
-```bash
-docker compose down
-```
-
-El volumen de SQL Server persiste, por lo que los datos no se eliminan.
-
----
-
-# 6. Crear la base de datos
-
-La base utilizada por defecto es:
-
-```text
-banking
-```
-
-Debe crearse solamente la primera vez si todavía no existe.
-
-Ejemplo:
-
-```bash
-docker exec -it banking-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "%DB_PASSWORD%" -C -Q "IF DB_ID('banking') IS NULL CREATE DATABASE banking;"
-```
-
-En PowerShell puede utilizarse directamente la contraseña configurada en `.env`:
+1. Crear la base `banking` la primera vez.
 
 ```powershell
 docker exec -it banking-sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "ChangeMe_StrongPass1" -C -Q "IF DB_ID('banking') IS NULL CREATE DATABASE banking;"
 ```
 
-> Sustituir `ChangeMe_StrongPass1` por la contraseña configurada localmente.
+Sustituir `ChangeMe_StrongPass1` por la contraseña local.
 
----
-
-# 7. Migraciones
-
-El proyecto utiliza **TypeORM migrations**.
-
-La sincronización automática está deshabilitada:
-
-```text
-synchronize: false
-```
-
-Las migraciones se ejecutan mediante `tsx` utilizando:
-
-```text
-src/database/data-source.ts
-```
-
-## Comandos
-
-| Comando | Descripción |
-|---|---|
-| `npm run migration:show` | Muestra migraciones aplicadas y pendientes |
-| `npm run migration:run` | Ejecuta las migraciones pendientes |
-| `npm run migration:revert` | Revierte la última migración |
-| `npm run migration:generate -- src/database/migrations/NombreCambio` | Genera una migración a partir de diferencias entre entidades y BD |
-| `npm run typeorm -- migration:create src/database/migrations/NombreCambio` | Crea una migración vacía |
-
-Después de levantar SQL Server y crear la base:
-
-```bash
-npm run migration:run
-```
-
----
-
-# 8. Seeds
-
-El proyecto incluye diferentes scripts de seed con objetivos separados.
-
-## Datos demo
-
-```bash
-npm run seed:demo
-```
-
-Crea o restablece dos cuentas de demostración con balance disponible para probar las funcionalidades de la aplicación:
-
-| Número de cuenta | Titular | Balance inicial |
-|---|---|---:|
-| `1000000011` | Cuenta Demo Origen | RD$10,000.0000 |
-| `1000000012` | Cuenta Demo Destino | RD$5,000.0000 |
-
-El script es idempotente respecto a estas cuentas: si ya existen, restablece sus datos y balances en lugar de crear cuentas duplicadas.
-
-Estas cuentas permiten probar transferencias inmediatamente después de preparar el entorno, mientras que las cuentas creadas normalmente mediante la API comienzan con balance `0`.
-
-> **Nota:** `seed:demo` restablece los datos y balances de las cuentas demo, pero no elimina las transferencias ni los movimientos existentes asociados a ellas. Por lo tanto, está pensado para preparar datos de demostración y no como un mecanismo de reinicio completo del historial financiero.
-
-## Roles
-
-```bash
-npm run seed:roles
-```
-
-Crea de forma idempotente los roles:
-
-```text
-ADMIN
-USER
-```
-
-## Primer administrador
-
-Después de crear los roles:
-
-```bash
-npm run seed:admin
-```
-
-Este script crea el administrador inicial utilizando las variables de entorno configuradas para el usuario administrador.
-
-La contraseña se almacena utilizando **bcrypt** y nunca se persiste en texto plano.
-
-El flujo inicial recomendado es:
+1. Aplicar el esquema y los datos iniciales.
 
 ```bash
 npm run migration:run
@@ -276,825 +131,310 @@ npm run seed:admin
 npm run seed:demo
 ```
 
----
-
-# 9. Ejecutar la API
-
-## Desarrollo
+1. Arrancar la API.
 
 ```bash
 npm run start:dev
 ```
 
-## Compilar
+1. Abrir Swagger en [http://localhost:3001/api/docs](http://localhost:3001/api/docs).
+
+Para detener SQL Server sin borrar datos: `docker compose stop`. `docker compose down` elimina el contenedor y conserva el volumen.
+
+---
+
+## Variables de entorno
+
+Valores de desarrollo de `.env.example`:
+
+
+| Variable                      | Ejemplo                             | Uso                                                                       |
+| ----------------------------- | ----------------------------------- | ------------------------------------------------------------------------- |
+| `MSSQL_SA_PASSWORD`           | `ChangeMe_StrongPass1`              | Contraseña `sa` del contenedor. Debe coincidir con `DB_PASSWORD`.         |
+| `DB_HOST`                     | `localhost`                         | Host de SQL Server.                                                       |
+| `DB_PORT`                     | `14333`                             | Puerto publicado en el host. Dentro del contenedor SQL escucha en `1433`. |
+| `DB_USER`                     | `sa`                                | Usuario de la base.                                                       |
+| `DB_PASSWORD`                 | `ChangeMe_StrongPass1`              | Contraseña de la API y de los scripts.                                    |
+| `DB_NAME`                     | `banking`                           | Base de datos.                                                            |
+| `DB_ENCRYPT`                  | `true`                              | Cifrado de la conexión.                                                   |
+| `DB_TRUST_SERVER_CERTIFICATE` | `true`                              | Acepta el certificado del SQL Server local.                               |
+| `ADMIN_NAME`                  | `Administrator`                     | Nombre del administrador inicial (`seed:admin`).                          |
+| `ADMIN_EMAIL`                 | `admin@banking.local`               | Correo del administrador inicial y del script de concurrencia.            |
+| `ADMIN_PASSWORD`              | `Admin123!`                         | Contraseña de desarrollo. Se guarda con bcrypt.                           |
+| `PORT`                        | `3001`                              | Puerto HTTP de la API.                                                    |
+| `JWT_SECRET`                  | `change-me-to-a-long-random-secret` | Firma del JWT. Cambiarlo fuera de desarrollo.                             |
+| `JWT_EXPIRES_IN`              | `2h`                                | Vida del token.                                                           |
+
+
+No hay `.env` de un frontend en este repositorio.
+
+---
+
+## Ejecución
+
+Desarrollo:
+
+```bash
+npm run start:dev
+```
+
+Compilar y ejecutar la build:
 
 ```bash
 npm run build
-```
-
-## Producción
-
-```bash
 npm run start:prod
 ```
 
-Por defecto, la API utiliza el puerto configurado mediante:
+Con la API en marcha:
 
-```env
-PORT
-```
+- Swagger: [http://localhost:3001/api/docs](http://localhost:3001/api/docs)
+- Prefijo de los recursos: `/api`
 
-con `3000` como valor habitual de desarrollo.
+En Swagger, el botón **Authorize** recibe el JWT. El login es `POST /api/auth/login`. El registro público crea usuarios `USER`. El primer `ADMIN` sale de `npm run seed:admin`. Un administrador autenticado puede cambiar el rol de otros usuarios, y la API no permite quitar el rol al último administrador.
+
+Los endpoints de cuentas, transferencias y lotes exigen `Authorization: Bearer`. La carga del CSV (`POST /api/batch-transfers`) exige además el rol `ADMIN`.
 
 ---
 
-# 10. Autenticación y autorización
+## Migraciones y seed de datos
 
-La API utiliza autenticación mediante **JWT Bearer Token**.
-
-El token contiene información necesaria para identificar al usuario y su rol.
-
-Los roles disponibles son:
-
-```text
-ADMIN
-USER
-```
-
-## Registro
-
-El registro público crea siempre usuarios con:
-
-```text
-role = USER
-status = ACTIVE
-```
-
-El cliente no puede elegir el rol durante el registro.
-
-Esto evita que un usuario pueda registrarse directamente como administrador.
-
-## Primer ADMIN
-
-El primer administrador del sistema se crea mediante:
+TypeORM no sincroniza el esquema (`synchronize: false`). El esquema y el procedimiento `dbo.usp_execute_transfer` se aplican con migraciones:
 
 ```bash
+npm run migration:run
+```
+
+Otros comandos: `npm run migration:show`, `npm run migration:revert`.
+
+### Datos demo
+
+```bash
+npm run seed:demo
+```
+
+
+| Número de cuenta | Titular             | Balance        |
+| ---------------- | ------------------- | -------------- |
+| `1000000011`     | Cuenta Demo Origen  | RD$10,000.0000 |
+| `1000000012`     | Cuenta Demo Destino | RD$5,000.0000  |
+
+
+Si esas cuentas ya existen, el script restablece titular, moneda, estado y saldo. No borra transferencias ni movimientos previos. Las cuentas creadas por la API nacen con saldo `0`.
+
+Antes del demo hacen falta los roles y el administrador:
+
+```bash
+npm run seed:roles
 npm run seed:admin
 ```
 
-Posteriormente, un administrador autenticado puede modificar el rol de otros usuarios.
+`seed:roles` crea `ADMIN` y `USER`. `seed:admin` crea el usuario de `ADMIN_EMAIL` con la contraseña hasheada.
 
-La API también evita degradar al último administrador existente, para impedir que el sistema quede sin usuarios con privilegios administrativos.
-
-## Autorización
-
-Las operaciones protegidas utilizan:
-
-- `JwtAuthGuard`
-- `RolesGuard`
-- `@Roles(...)`
-
-Las acciones administrativas, como creación de determinadas entidades o procesamiento de lotes, se restringen al rol `ADMIN`.
-
-Las consultas y operaciones permitidas a usuarios normales pueden utilizarse con `USER`.
-
----
-
-# 11. Swagger / OpenAPI
-
-La API está documentada mediante **Swagger/OpenAPI**.
-
-Con la aplicación ejecutándose, la documentación está disponible en:
-
-http://localhost:3000/api/docs
-
-Desde Swagger se pueden consultar:
-
-- endpoints;
-- parámetros;
-- request DTOs;
-- response DTOs;
-- códigos HTTP;
-- autenticación Bearer.
-
-Para probar endpoints protegidos, primero debe iniciarse sesión y proporcionar el JWT mediante la opción **Authorize** de Swagger.
-
----
-
-# 12. Modelo de datos
-
-Las principales tablas son:
-
-### `accounts`
-
-Representa las cuentas bancarias.
-
-Contiene, entre otros:
-
-- número de cuenta;
-- titular;
-- moneda;
-- balance;
-- estado.
-
-Los valores monetarios se almacenan utilizando:
-
-```text
-decimal(19,4)
-```
-
-### `transfers`
-
-Registra las transferencias.
-
-Incluye:
-
-- cuenta origen;
-- cuenta destino;
-- monto;
-- estado;
-- referencia;
-- idempotency key;
-- fecha de creación/finalización;
-- información de fallo cuando corresponde.
-
-### `account_movements`
-
-Representa el historial financiero de una cuenta.
-
-Cada movimiento registra:
-
-- cuenta;
-- transferencia relacionada;
-- tipo de movimiento;
-- monto;
-- balance anterior;
-- balance posterior;
-- fecha.
-
-### `batch_processes`
-
-Representa un proceso de importación/procesamiento de transferencias por lote.
-
-Mantiene el estado y progreso general del proceso.
-
-### `batch_transfer_items`
-
-Representa cada operación individual perteneciente a un batch.
-
-Permite identificar:
-
-- operaciones procesadas;
-- operaciones exitosas;
-- operaciones fallidas;
-- errores individuales.
-
-### `roles`
-
-Contiene los roles de autorización.
-
-Actualmente:
-
-```text
-ADMIN
-USER
-```
-
-### `users`
-
-Contiene los usuarios autenticables del sistema y su relación con un rol.
-
----
-
-# 13. Manejo de valores monetarios
-
-Los valores monetarios utilizan:
-
-```text
-decimal(19,4)
-```
-
-en SQL Server.
-
-En la aplicación se evita utilizar aritmética financiera mediante `JavaScript Number`.
-
-Para operaciones monetarias se utiliza:
-
-```text
-decimal.js
-```
-
-y los valores monetarios se mantienen como strings cuando atraviesan las diferentes capas de la aplicación.
-
-Esto evita errores derivados de la representación de números de punto flotante.
-
----
-
-# 14. Transferencias atómicas
-
-Una transferencia modifica simultáneamente:
-
-1. balance de la cuenta origen;
-2. balance de la cuenta destino;
-3. registro de la transferencia;
-4. movimiento `DEBIT` de la cuenta origen;
-5. movimiento `CREDIT` de la cuenta destino.
-
-Estas operaciones se realizan dentro de una **transacción SQL Server**.
-
-Por tanto:
-
-```text
-COMMIT
-```
-
-ocurre solamente si toda la operación es válida.
-
-Ante cualquier error:
-
-```text
-ROLLBACK
-```
-
-evita dejar balances o movimientos parcialmente actualizados.
-
----
-
-# 15. Control de concurrencia
-
-Uno de los escenarios centrales de la solución es impedir inconsistencias cuando múltiples transferencias intentan utilizar simultáneamente el balance de una misma cuenta.
-
-La implementación utiliza **bloqueo pesimista en SQL Server**.
-
-Las cuentas involucradas se bloquean mediante una consulta equivalente a:
-
-```sql
-SELECT id, balance, status
-FROM accounts WITH (UPDLOCK, ROWLOCK, HOLDLOCK)
-WHERE id IN (@sourceAccountId, @destinationAccountId)
-ORDER BY id;
-```
-
-## Locks utilizados
-
-### `UPDLOCK`
-
-Solicita locks de actualización desde la lectura inicial, evitando que dos transacciones lean el mismo balance y posteriormente intenten actualizarlo como si ambas dispusieran de los mismos fondos.
-
-### `HOLDLOCK`
-
-Mantiene los locks durante la transacción y proporciona el comportamiento requerido para proteger la lectura utilizada para tomar la decisión financiera.
-
-### `ROWLOCK`
-
-Solicita granularidad a nivel de fila cuando SQL Server lo considera posible.
-
-## Orden determinístico
-
-Las cuentas se bloquean utilizando:
-
-```sql
-ORDER BY id
-```
-
-Esto garantiza que diferentes transferencias intenten adquirir los locks de las cuentas en el mismo orden, reduciendo la probabilidad de deadlocks.
-
----
-
-# 16. Manejo de deadlocks
-
-Aunque se utiliza un orden determinístico para reducirlos, una aplicación concurrente debe asumir que SQL Server todavía puede detectar un deadlock.
-
-SQL Server identifica este escenario mediante el error:
-
-```text
-1205
-```
-
-La transferencia implementa reintentos limitados de la transacción completa.
-
-Los retrasos utilizados son:
-
-```text
-50 ms
-100 ms
-200 ms
-```
-
-con un máximo de tres reintentos.
-
-La operación completa se vuelve a ejecutar porque después de un deadlock no debe asumirse que el estado previamente leído sigue siendo válido.
-
----
-
-# 17. Idempotencia
-
-Las transferencias utilizan una:
-
-```text
-idempotencyKey
-```
-
-para evitar procesar accidentalmente la misma operación más de una vez.
-
-Esto es especialmente importante en:
-
-- reintentos del cliente;
-- procesamiento batch;
-- errores temporales;
-- escenarios donde una solicitud puede repetirse.
-
-Una solicitud repetida con la misma clave puede identificarse sin ejecutar nuevamente una transferencia financiera equivalente.
-
----
-
-# 18. Caso obligatorio de concurrencia
-
-El proyecto incluye un script específico para demostrar el escenario de concurrencia.
-
-El escenario es:
-
-```text
-Balance inicial cuenta origen: RD$10,000
-
-Transferencia A: RD$8,000
-Transferencia B: RD$7,000
-```
-
-Ambas transferencias se envían **simultáneamente** contra la misma cuenta origen.
-
-Matemáticamente:
-
-```text
-8,000 + 7,000 = 15,000
-```
-
-por lo que ambas no pueden ser aprobadas contra un balance disponible de RD$10,000.
-
-## Ejecutar la prueba
-
-Primero debe estar ejecutándose la API:
+### Volumen
 
 ```bash
-npm run start:dev
+npm run seed:volume
 ```
 
-En otra terminal:
+Genera al menos 200,000 movimientos, en tandas, junto con cuentas de carga `LOAD000001` en adelante. Sirve para probar filtros, paginación e índices. No modifica las cuentas demo `1000000011` y `1000000012`.
+
+---
+
+## Ejecución de pruebas
+
+### Caso obligatorio de concurrencia
+
+La API debe estar corriendo en el puerto `3001`, con migraciones, roles y administrador aplicados.
 
 ```bash
 npm run test:concurrency:example
 ```
 
-El script:
+El script inicia sesión con `ADMIN_EMAIL` y crea sus propias cuentas, distintas de las del seed demo: una origen con RD$10,000 y una destino con RD$5,000. El número de cuenta lleva la marca de tiempo de esa corrida. Luego envía al mismo tiempo:
 
-1. obtiene autenticación contra la API;
-2. prepara las cuentas necesarias para el escenario;
-3. crea una cuenta origen con RD$10,000;
-4. lanza una transferencia de RD$8,000;
-5. lanza una transferencia de RD$7,000;
-6. ambas solicitudes se envían concurrentemente;
-7. consulta los balances finales;
-8. valida el resultado.
+- transferencia A de RD$8,000
+- transferencia B de RD$7,000
 
-## Resultado esperado
+Resultado correcto: exactamente una transferencia aprobada.
 
-Debe aprobarse **exactamente una** transferencia.
+- Si entra la de RD$8,000, el saldo queda en RD$2,000.
+- Si entra la de RD$7,000, el saldo queda en RD$3,000.
 
-Si gana la transferencia de RD$8,000:
+La otra se rechaza por saldo insuficiente. El script termina en éxito cuando no hay saldo negativo, doble aprobación ni movimientos a medias. Ese es el criterio de aceptación de la prueba.
 
-```text
-Balance final origen: RD$2,000
-```
-
-Si gana la transferencia de RD$7,000:
-
-```text
-Balance final origen: RD$3,000
-```
-
-La otra transferencia debe rechazarse por fondos insuficientes.
-
-Nunca deben producirse:
-
-```text
-balance negativo
-doble aprobación
-actualización parcial
-movimientos financieros incompletos
-```
-
-El script reporta `PASS` cuando se mantiene esta consistencia.
-
----
-
-# 19. Movimientos
-
-La API permite consultar movimientos de una cuenta con:
-
-- paginación;
-- fecha desde;
-- fecha hasta;
-- tipo de movimiento;
-- monto mínimo;
-- monto máximo.
-
-La consulta se ejecuta en SQL Server y no carga el historial completo en memoria.
-
-Los resultados se ordenan de manera determinística para soportar navegación paginada.
-
----
-
-# 20. Volumen de datos
-
-El proyecto incluye un script específico para generar volumen de movimientos.
-
-Ejecutar:
-
-```bash
-npm run seed:volume
-```
-
-El objetivo es generar al menos:
-
-```text
-200,000 movimientos bancarios
-```
-
-para evaluar las consultas bajo un volumen de datos considerable.
-
-La generación se realiza en batches para evitar mantener cientos de miles de objetos simultáneamente en memoria.
-
-Los datos de carga generados por este script están destinados principalmente a pruebas de:
-
-- filtros;
-- paginación;
-- índices;
-- rendimiento de consultas;
-- análisis del execution plan.
-
----
-
-# 21. Índices y consultas
-
-Se definieron índices sobre campos utilizados frecuentemente para:
-
-- localizar cuentas;
-- consultar movimientos de una cuenta;
-- ordenar movimientos por fecha;
-- filtrar por tipo;
-- localizar transferencias;
-- garantizar unicidad de referencias e idempotency keys.
-
-Las consultas de movimientos utilizan paginación desde SQL Server en lugar de recuperar todo el conjunto y paginar en memoria.
-
-Durante las pruebas se analizaron los **Execution Plans de SQL Server** para comprobar el comportamiento de las consultas bajo volumen.
-
----
-
-# 22. Procesamiento batch de transferencias
-
-La API permite procesar archivos CSV de transferencias.
-
-El tamaño máximo contemplado es:
-
-```text
-10,000 transferencias por archivo
-```
-
-El flujo general es:
-
-```text
-CSV
- ↓
-Validación
- ↓
-Creación de BatchProcess
- ↓
-Procesamiento
- ↓
-BatchTransferItems
- ↓
-Actualización de progreso
- ↓
-COMPLETED / resultado final
-```
-
-La petición de carga no necesita mantener abierta la conexión HTTP hasta que terminen las 10,000 operaciones.
-
-El proceso mantiene información de:
-
-- total de operaciones;
-- operaciones procesadas;
-- operaciones exitosas;
-- operaciones fallidas;
-- estado general;
-- errores individuales.
-
----
-
-# 23. Generar CSV de 10,000 transferencias
-
-Para generar el archivo utilizado en las pruebas de rendimiento/batch:
-
-```bash
-npm run generate:performance
-```
-
-Este script genera el CSV utilizado para probar el procesamiento de hasta 10,000 transferencias.
-
-Posteriormente el archivo puede cargarse utilizando el endpoint batch correspondiente.
-
----
-
-# 24. Estrategia batch
-
-El procesamiento por lote:
-
-- valida el archivo recibido;
-- registra un proceso;
-- divide el trabajo en grupos manejables;
-- reutiliza la lógica de transferencia existente;
-- mantiene progreso;
-- registra éxito o fallo por operación;
-- continúa procesando cuando una operación individual falla;
-- utiliza idempotencia para evitar duplicidades;
-- aplica reintentos donde corresponde.
-
-Las operaciones batch reutilizan las mismas reglas financieras de las transferencias individuales.
-
-Por tanto, una transferencia proveniente de CSV no puede evitar:
-
-- validación de balance;
-- locking;
-- transacción;
-- idempotencia;
-- reglas de estado de cuenta.
-
----
-
-# 25. Consideraciones de rendimiento del batch
-
-El procesamiento de transferencias financieras concurrentes prioriza **consistencia sobre throughput**.
-
-Las transferencias que utilizan las mismas cuentas generan naturalmente mayor contención debido a los locks requeridos para proteger los balances.
-
-Por este motivo, el rendimiento depende significativamente de la distribución de cuentas contenida en el archivo.
-
-Archivos con transferencias distribuidas entre múltiples cuentas permiten mayor paralelismo que archivos donde miles de operaciones compiten por las mismas cuentas.
-
----
-
-# 26. Estado de cuenta
-
-La API permite generar estados de cuenta mensuales.
-
-El estado incluye:
-
-- información de la cuenta;
-- período;
-- total de créditos;
-- total de débitos;
-- movimientos correspondientes al período;
-- paginación para la respuesta JSON.
-
-Los límites temporales se manejan como un intervalo:
-
-```text
-[from, to)
-```
-
-donde el inicio del mes es inclusivo y el inicio del mes siguiente es exclusivo.
-
----
-
-# 27. Estado de cuenta PDF
-
-También puede generarse el estado de cuenta en formato PDF.
-
-La generación utiliza:
-
-```text
-PDFKit
-```
-
-El documento incluye los movimientos del período y soporta múltiples páginas cuando el número de registros supera el espacio disponible.
-
----
-
-# 28. Procesos batch y cuentas en frontend
-
-La API dispone de endpoints ligeros de opciones para que el frontend pueda presentar selectores amigables sin exigir que el usuario copie UUIDs manualmente.
-
-Para cuentas, el frontend puede representar una opción como:
-
-```text
-accountNumber - holderName
-```
-
-mientras continúa enviando internamente el `id`.
-
-Los procesos batch también pueden identificarse mediante su nombre de archivo y estado, manteniendo internamente el UUID correspondiente.
-
----
-
-# 29. Tests
-
-Ejecutar tests:
+### Tests unitarios
 
 ```bash
 npm run test
 ```
 
-Modo watch:
-
-```bash
-npm run test:watch
-```
-
-Coverage:
-
-```bash
-npm run test:cov
-```
-
-Tests E2E:
-
-```bash
-npm run test:e2e
-```
-
-La solución incluye pruebas sobre componentes críticos, incluyendo autenticación y reglas de usuario, además del script específico para reproducir el escenario obligatorio de concurrencia.
+Vitest cubre reglas de la API, incluida la transferencia. El caso de dinero concurrente no se simula en memoria: se demuestra con el script anterior contra SQL Server.
 
 ---
 
+## Cómo ejecutar el procesamiento masivo
 
-# 30. Inicialización completa desde cero
+El CSV usa encabezado y una transferencia por fila:
 
-Una instalación nueva puede prepararse siguiendo este flujo:
+```csv
+sourceAccountNumber,destinationAccountNumber,amount
+1000000011,1000000012,1.00
+```
+
+Reglas del archivo:
+
+- Extensión `.csv`.
+- Máximo 10,000 filas de datos.
+- Monto mayor que 0, con hasta 4 decimales.
+- La cuenta origen y la destino de una fila no pueden ser iguales.
+- Si el archivo viene vacío o una fila no cumple el formato, la API rechaza la carga y no crea el proceso.
+
+Generar un archivo de 10,000 filas:
 
 ```bash
-npm install
+npm run generate:performance:wide
 ```
 
-Configurar:
+Ese comando escribe `batch-performance-multiple-accounts.csv`, repartido entre las cuentas `LOAD000001` a `LOAD000050`, con monto `1.00`. `npm run generate:batch` escribe `batch-10000.csv` con un solo par de cuentas. Esas cuentas deben existir y tener saldo; `npm run seed:volume` las crea.
 
-```text
-.env
-```
+El archivo se sube desde el frontend, con un usuario `ADMIN`. También se puede cargar en Swagger, en `POST /api/batch-transfers`: primero **Authorize** con el JWT y después el campo `file`.
 
-Levantar SQL Server:
+La respuesta incluye el id del proceso y regresa sin esperar a las 10,000 filas. El progreso se ve en el frontend o, en Swagger, con:
 
-```bash
-docker compose up -d
-```
+- `GET /api/batch-transfers/:id` — estado, total, procesadas, exitosas y fallidas.
+- `GET /api/batch-transfers/:id/items` — resultado de cada fila, con código y mensaje cuando falló.
 
-Crear la base `banking` si todavía no existe.
+Cada fila es una transferencia propia. Si una fila no tiene saldo o la cuenta no existe, queda `FAILED` y el lote sigue. El proceso termina en `COMPLETED` cuando todas salen bien y en `COMPLETED_WITH_ERRORS` cuando alguna falló. Un error inesperado del proceso marca el lote como `FAILED`.
 
-Ejecutar migraciones:
-
-```bash
-npm run migration:run
-```
-
-Crear roles:
-
-```bash
-npm run seed:roles
-```
-
-Crear el administrador inicial:
-
-```bash
-npm run seed:admin
-```
-
-Crear datos demo:
-
-```bash
-npm run seed:demo
-```
-
-Iniciar API:
-
-```bash
-npm run start:dev
-```
-
-Opcionalmente generar el volumen de datos:
-
-```bash
-npm run seed:volume
-```
+La clave de idempotencia de cada fila es `{idDelLote}:{numeroDeFila}`. Repetir el procesamiento de esa fila no vuelve a mover el dinero.
 
 ---
 
-# 31. Scripts principales
+## Decisiones técnicas importantes
 
-| Comando | Propósito |
-|---|---|
-| `npm run start:dev` | Ejecuta la API en desarrollo |
-| `npm run build` | Compila el proyecto |
-| `npm run lint` | Ejecuta análisis estático |
-| `npm run test` | Ejecuta tests |
-| `npm run migration:run` | Ejecuta migraciones |
-| `npm run migration:revert` | Revierte última migración |
-| `npm run seed:roles` | Crea roles ADMIN/USER |
-| `npm run seed:admin` | Crea administrador inicial |
-| `npm run seed:demo` | Genera datos demo |
-| `npm run seed:volume` | Genera volumen de movimientos |
-| `npm run test:concurrency:example` | Ejecuta la demostración del caso obligatorio de concurrencia |
-| `npm run generate:batch` | Genera CSV batch |
-| `npm run generate:performance` | Genera CSV de 10,000 transferencias para prueba de rendimiento |
+### ¿Por qué bloqueo pesimista?
 
----
+El caso obligatorio son dos débitos que no caben juntos en RD$10,000. Con bloqueo optimista las dos transacciones pueden leer RD$10,000, decidir que el saldo alcanza y escribir después. Hace falta un control extra de versión para que la segunda pierda, y un olvido de ese control deja el saldo negativo o perdido.
 
-# 32. Decisiones técnicas principales
+El bloqueo pesimista toma la decisión con las filas ya reservadas. La segunda transferencia espera, lee el saldo que dejó la primera y, si ya no alcanza, termina en `INSUFFICIENT_BALANCE` sin modificar nada.
 
-## SQL Server
+### Locks y orden
 
-Se utiliza SQL Server por requerimiento de la solución.
+Dentro de `dbo.usp_execute_transfer`, las dos cuentas se leen así:
 
-## TypeORM con migraciones
+```sql
+SELECT id, balance, status
+FROM accounts WITH (UPDLOCK, ROWLOCK, HOLDLOCK)
+WHERE id IN (@source_account_id, @destination_account_id)
+ORDER BY id;
+```
 
-La base no depende de `synchronize`.
+- `UPDLOCK` pide el lock de actualización en la lectura. La otra transacción no puede leer ese saldo como si todavía estuviera disponible para debitarlo.
+- `HOLDLOCK` mantiene el lock hasta el `COMMIT` o el `ROLLBACK`, que es el intervalo en el que el saldo leído sigue siendo el saldo sobre el que se decide.
+- `ROWLOCK` pide granularidad de fila.
 
-Esto permite reproducir el esquema de forma controlada mediante migraciones.
+`ORDER BY id` hace que las transferencias intenten tomar las cuentas en un orden determinista, reduciendo el riesgo de deadlocks entre transferencias que involucran las mismas cuentas.
 
-## `decimal(19,4)`
+Esos locks viven en la transacción del procedimiento, no en una transacción abierta desde Nest. La API solo ejecuta el procedimiento y lee el resultado.
 
-Se utiliza para representar valores monetarios con precisión decimal.
+### Aislamiento
 
-## `decimal.js`
+La sesión queda en `READ COMMITTED`, el aislamiento por defecto de SQL Server. No se subió toda la base a `SERIALIZABLE`.
 
-Evita realizar cálculos financieros mediante floating point de JavaScript.
+`SERIALIZABLE` global añadiría range locks a consultas que no mueven dinero, como el listado de movimientos o el progreso del lote, y aumentaría los deadlocks. La protección del saldo ya está en las dos filas de cuenta: `UPDLOCK` y `HOLDLOCK` las retienen hasta el fin de esa transferencia. El resto de la API no necesita ese aislamiento.
 
-## Transacciones explícitas
+### Deadlock 1205
 
-Las transferencias financieras se ejecutan dentro de una única transacción.
+El orden de las cuentas reduce los deadlocks; no los elimina. Si SQL Server devuelve el error `1205`, la API vuelve a ejecutar el procedimiento completo. No reutiliza saldos leídos antes del fallo.
 
-## Pessimistic locking
+Hay tres reintentos, con esperas de 50 ms, 100 ms y 200 ms. Si los tres fallan, la transferencia responde `DEADLOCK_RETRY_EXHAUSTED`. En un lote, esa fila queda registrada como fallida y el proceso continúa con la siguiente.
 
-Se eligió bloqueo pesimista porque el escenario crítico implica múltiples operaciones compitiendo por el mismo balance.
+### Resultado del caso RD$10,000 / RD$8,000 / RD$7,000
 
-La decisión financiera se realiza mientras las filas involucradas están protegidas mediante locks de SQL Server.
+`npm run test:concurrency:example` dispara las dos transferencias a la vez contra una cuenta de RD$10,000.
 
-## Orden determinístico de locks
+La que obtiene el lock primero descuenta su monto y confirma. La otra entra después, ve el saldo restante y no alcanza:
 
-Reduce la probabilidad de deadlocks cuando múltiples transferencias involucran las mismas cuentas.
+- RD$10,000 − RD$8,000 = RD$2,000, y la de RD$7,000 se rechaza; o
+- RD$10,000 − RD$7,000 = RD$3,000, y la de RD$8,000 se rechaza.
 
-## Retry de deadlocks
+Nunca se aprueban las dos, porque 8,000 + 7,000 = 15,000. El `ROLLBACK` de la rechazada no toca el saldo ni deja un movimiento suelto. El script lo considera correcto solo si el saldo final es uno de esos dos valores y hay una sola transferencia aprobada.
 
-El error `1205` se maneja mediante un número limitado de reintentos de la transacción completa.
+### Idempotencia
 
-## Idempotencia
+`transfers.idempotency_key` es única. El procedimiento busca esa clave al abrir la transacción, antes de bloquear cuentas y antes de mirar el saldo.
 
-Evita duplicar operaciones financieras debido a reintentos o solicitudes repetidas.
+- La misma clave, con el mismo origen, destino y monto, devuelve la transferencia original. No crea otra fila ni otros movimientos, aunque el saldo actual ya no alcance. Por eso repetir la de RD$8,000 cuando el saldo quedó en RD$2,000 sigue devolviendo la transferencia ya aplicada.
+- La misma clave con otro cuerpo devuelve `IDEMPOTENCY_KEY_CONFLICT`.
+- Si dos llamadas nuevas con la misma clave se cruzan, el índice único produce `2601` o `2627`. El procedimiento lee la fila ganadora y responde como replay o como conflicto. No inserta un segundo movimiento.
 
-## Procesamiento batch
+En el lote, la clave `{idDelLote}:{numeroDeFila}` hace que un reintento de esa fila no duplique el débito.
 
-El batch reutiliza la misma lógica financiera que las transferencias individuales en lugar de implementar un segundo mecanismo de actualización de balances.
+### Movimientos, paginación e índices
 
-## Paginación server-side
+El listado no carga el historial en memoria. Filtra en SQL Server por cuenta, fechas, tipo y rango de monto, ordena por `created_at` e `id`, y aplica `OFFSET`/`FETCH` con `skip` y `take`.
 
-Los movimientos se filtran y paginan directamente en SQL Server.
+Los índices que sostienen esa consulta son:
 
----
+- `IX_account_movements_account_created` sobre `(account_id, created_at)`
+- `IX_account_movements_account_type_created` sobre `(account_id, type, created_at)`
 
-# 33. Limitaciones y posibles mejoras
+Con el volumen de `npm run seed:volume` (200,000 movimientos o más), el plan de ejecución de SQL Server debe mostrar un seek por cuenta y fecha, no un scan de toda la tabla seguido de un filtro en la aplicación. El estado de cuenta usa el mismo criterio: el mes es el intervalo `[inicio del mes, inicio del mes siguiente)` y la página también sale de SQL Server.
 
-La implementación prioriza los requisitos funcionales, consistencia financiera y reproducibilidad de la prueba técnica.
+### Otras decisiones que sostienen lo anterior
 
-Algunas mejoras posibles para un entorno productivo serían:
+- El monto es `decimal(19,4)` en la base y `decimal.js` en Node. Un `number` de JavaScript no representa centavos de forma exacta.
+- El lote corre en el proceso Nest. Cada fila conserva su propia transacción y el `POST` responde en cuanto el trabajo quedó registrado.
+- La consistencia manda sobre el throughput (Transferencias procesadas por segundo). Un CSV donde miles de filas comparten pocas cuentas espera más en los locks que un CSV repartido entre muchas cuentas.
 
-- utilizar una cola persistente para el procesamiento batch;
-- separar procesamiento batch en workers independientes;
-- observabilidad y métricas;
-- tracing distribuido;
-- gestión centralizada de logs;
-- políticas avanzadas de rate limiting;
-- administración avanzada de usuarios;
-- rotación/revocación avanzada de sesiones;
-- almacenamiento externo de documentos/reportes si el volumen lo requiere.
+### Valor agregado ya incluido
 
-Actualmente el procesamiento asíncrono de batch ocurre dentro del proceso de la aplicación. Para un entorno distribuido o de alta disponibilidad sería preferible utilizar una cola durable como mecanismo de ejecución.
+JWT, roles `ADMIN` y `USER`, y SQL Server en Docker Compose forman parte de esta entrega. No hay imagen Docker de la API ni rate limit de login. Las pruebas automáticas son las de Vitest; la prueba de aceptación del dinero concurrente es `npm run test:concurrency:example`.
 
 ---
 
-# 34. Repositorio
+## Modelo de datos
 
-El repositorio contiene:
+
+| Tabla                  | Rol                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `accounts`             | Número, titular, moneda `DOP`, saldo `decimal(19,4) >= 0`, estado.                   |
+| `transfers`            | Origen, destino, monto, estado, referencia única, clave de idempotencia única.       |
+| `account_movements`    | Débito o crédito, saldo anterior, saldo posterior y la transferencia que lo originó. |
+| `batch_processes`      | Archivo, estado, totales y progreso del lote.                                        |
+| `batch_transfer_items` | Una fila del CSV, sus intentos y el error si falló.                                  |
+| `roles` / `users`      | `ADMIN` y `USER`. La contraseña se guarda con bcrypt.                                |
+
+
+## Scripts
+
+
+| Comando                            | Para qué                                                   |
+| ---------------------------------- | ---------------------------------------------------------- |
+| `npm run start:dev`                | API en desarrollo                                          |
+| `npm run migration:run`            | Aplica el esquema y el procedimiento                       |
+| `npm run seed:roles`               | Crea `ADMIN` y `USER`                                      |
+| `npm run seed:admin`               | Crea el administrador del `.env`                           |
+| `npm run seed:demo`                | Cuentas `1000000011` (RD$10,000) y `1000000012` (RD$5,000) |
+| `npm run seed:volume`              | Al menos 200,000 movimientos                               |
+| `npm run test:concurrency:example` | Caso RD$10,000 / RD$8,000 / RD$7,000                       |
+| `npm run test`                     | Tests unitarios                                            |
+| `npm run generate:performance:wide` | CSV de 10,000 filas entre `LOAD000001` y `LOAD000050`     |
+| `npm run generate:batch`           | CSV de 10,000 filas sobre un solo par de cuentas           |
+
+
+## Repositorio
 
 ```text
 src/
+  accounts/
+  transfers/
+  batch-transfers/
+  auth/
+  users/
   database/
     entities/
     migrations/
-  accounts/
-  transfers/
-  batches/
-  auth/
-  users/
-
 scripts/
   seed-demo.ts
   seed-volume.ts
@@ -1104,14 +444,6 @@ scripts/
   generate-performance-csv.ts
 ```
 
-La estructura exacta puede incluir módulos y archivos adicionales correspondientes a DTOs, mappers, guards, servicios y utilidades.
+## Licencia
 
----
-
-# 35. Licencia
-
-```text
-UNLICENSED
-```
-
-Proyecto privado desarrollado como solución de evaluación técnica.
+`UNLICENSED`. Proyecto privado de la evaluación técnica.

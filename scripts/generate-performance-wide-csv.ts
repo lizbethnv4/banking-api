@@ -22,7 +22,7 @@ for (let i = 0; i < TOTAL_ROWS; i++) {
 }
 
 writeFileSync(
-  'batch-performance-50-accounts.csv',
+  'batch-performance-multiple-accounts.csv',
   rows.join('\n'),
   'utf8',
 );
