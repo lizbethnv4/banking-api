@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 
-const TOTAL_ROWS = 1_000;
+const TOTAL_ROWS = 10_000;
 
 const ACCOUNT_PAIRS = [
     ['LOAD000001', 'LOAD000002'],

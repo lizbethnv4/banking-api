@@ -31,6 +31,7 @@
     "seed:volume": "tsx scripts/seed-volume.ts",
     "generate:batch": "tsx scripts/generate-batch-csv.ts",
     "generate:performance": "tsx scripts/generate-performance-csv.ts",
+    "generate:performance:wide": "tsx scripts/generate-performance-wide-csv.ts",
     "seed:roles": "tsx scripts/seed-roles.ts",
     "seed:admin": "tsx scripts/seed-admin.ts"
   },

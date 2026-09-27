@@ -4,7 +4,7 @@ import AppDataSource from '../src/database/data-source.js';
 
 const DEFAULT_MOVEMENT_COUNT = 200_000;
 const MOVEMENTS_PER_BATCH = 5_000;
-const LOAD_ACCOUNT_COUNT = 20;
+const LOAD_ACCOUNT_COUNT = 50;
 
 async function main() {
   const requestedCount = Number(
