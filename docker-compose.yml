@@ -21,6 +21,29 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+  
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: banking-api
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    environment:
+      DB_HOST: sqlserver
+      DB_PORT: 1433
+      DB_USER: "${DB_USER}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      DB_NAME: "${DB_NAME}"
+      DB_ENCRYPT: "${DB_ENCRYPT}"
+      DB_TRUST_SERVER_CERTIFICATE: "${DB_TRUST_SERVER_CERTIFICATE}"
+      PORT: "${PORT:-3001}"
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN}"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   banking_sqlserver_data:
