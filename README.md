@@ -48,7 +48,7 @@ El lote no usa Redis, BullMQ ni un worker aparte. `POST /api/batch-transfers` va
 
 ### Backend
 
-- Node.js 20+
+- Node.js 24+
 - NestJS
 - TypeScript
 - TypeORM
@@ -74,7 +74,7 @@ El dinero se guarda como `decimal(19,4)`. Los cálculos de la aplicación usan `
 
 ## Requisitos
 
-- Node.js 20 o superior
+- Node.js 24+
 - npm
 - Docker Desktop
 
@@ -358,9 +358,11 @@ La clave de idempotencia de cada fila es `{idDelLote}:{numeroDeFila}`. Repetir e
 
 ### ¿Por qué bloqueo pesimista?
 
-El caso obligatorio son dos débitos que no caben juntos en RD$10,000. Con bloqueo optimista las dos transacciones pueden leer RD$10,000, decidir que el saldo alcanza y escribir después. Hace falta un control extra de versión para que la segunda pierda, y un olvido de ese control deja el saldo negativo o perdido.
+Elegí bloqueo pesimista porque el saldo de una cuenta es un recurso crítico y pueden existir varias transferencias concurrentes intentando consumirlo. Necesitaba garantizar que la validación de fondos y la actualización del saldo se realizaran dentro de la misma transacción y sobre un estado protegido.
 
-El bloqueo pesimista toma la decisión con las filas ya reservadas. La segunda transferencia espera, lee el saldo que dejó la primera y, si ya no alcanza, termina en `INSUFFICIENT_BALANCE` sin modificar nada.
+Con UPDLOCK y HOLDLOCK, la transferencia mantiene bloqueadas las cuentas involucradas mientras valida y actualiza sus balances. De esta forma, si otra transferencia intenta operar concurrentemente sobre la misma cuenta, debe esperar; cuando obtiene acceso, lee el saldo resultante de la operación anterior y vuelve a validar si dispone de fondos suficientes.
+
+Optimistic locking también sería una alternativa válida, utilizando, por ejemplo, una columna de versión para detectar que el saldo fue modificado desde que se leyó. Sin embargo, ante un conflicto sería necesario abortar o rechazar la actualización y, si corresponde, reintentar la operación. En un escenario con alta contención sobre las mismas cuentas, esos conflictos y reintentos pueden generar trabajo adicional. Por eso, para este caso preferí bloqueo pesimista, priorizando la consistencia y un comportamiento predecible bajo contención.
 
 ### Locks y orden
 
@@ -375,7 +377,7 @@ ORDER BY id;
 
 - `UPDLOCK` pide el lock de actualización en la lectura. La otra transacción no puede leer ese saldo como si todavía estuviera disponible para debitarlo.
 - `HOLDLOCK` mantiene el lock hasta el `COMMIT` o el `ROLLBACK`, que es el intervalo en el que el saldo leído sigue siendo el saldo sobre el que se decide.
-- `ROWLOCK` pide granularidad de fila.
+- `ROWLOCK` solicita a SQL Server utilizar locks a nivel de fila.
 
 `ORDER BY id` hace que las transferencias intenten tomar las cuentas en un orden determinista, reduciendo el riesgo de deadlocks entre transferencias que involucran las mismas cuentas.
 
@@ -429,7 +431,7 @@ Con el volumen de `npm run seed:volume` (200,000 movimientos o más), el plan de
 
 - El monto es `decimal(19,4)` en la base y `decimal.js` en Node. Un `number` de JavaScript no representa centavos de forma exacta.
 - El lote corre en el proceso Nest. Cada fila conserva su propia transacción y el `POST` responde en cuanto el trabajo quedó registrado.
-- La consistencia manda sobre el throughput (Transferencias procesadas por segundo). Un CSV donde miles de filas comparten pocas cuentas espera más en los locks que un CSV repartido entre muchas cuentas.
+- La consistencia manda sobre el throughput (transferencias procesadas por segundo). Un CSV donde miles de filas comparten pocas cuentas espera más en los locks que un CSV repartido entre muchas cuentas.
 
 ### Valor agregado ya incluido
 
