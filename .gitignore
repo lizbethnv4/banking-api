@@ -7,6 +7,8 @@
 /docs
 /GUIA-DOCUMENTACION.pdf
 
+# CSV files
+*.csv
 # TypeScript build cache
 *.tsbuildinfo
 
